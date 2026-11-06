@@ -4,12 +4,14 @@
     python -m fxbt check --pairs EURUSD GBPUSD
     python -m fxbt backtest --strategy london_breakout
     python -m fxbt backtest --strategy ema_breakout --param rr=1.5 --costs 1.1
+    python -m fxbt sweep --strategy london_breakout --grid rr=1,1.5,2 --grid entry_end_hour=10,11
 """
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import itertools
 import sys
 from pathlib import Path
 
@@ -28,19 +30,31 @@ WARMUP_DAYS = 60
 RESULTS_DIR = Path(__file__).resolve().parents[2] / "results"
 
 
-def _parse_params(cls, overrides: list[str]):
+def _cast(cls, key: str, raw: str):
     fields = {f.name: f for f in dataclasses.fields(cls)}
+    if key not in fields:
+        sys.exit(f"Paramètre inconnu : {key}. Disponibles : {', '.join(fields)}")
+    default = fields[key].default
+    if isinstance(default, bool):
+        return raw.lower() in ("1", "true", "oui", "yes")
+    return type(default)(raw)
+
+
+def _parse_params(cls, overrides: list[str]):
     values = {}
     for item in overrides:
         key, _, raw = item.partition("=")
-        if key not in fields:
-            sys.exit(f"Paramètre inconnu : {key}. Disponibles : {', '.join(fields)}")
-        default = fields[key].default
-        if isinstance(default, bool):
-            values[key] = raw.lower() in ("1", "true", "oui", "yes")
-        else:
-            values[key] = type(default)(raw)
+        values[key] = _cast(cls, key, raw)
     return cls(**values)
+
+
+def _load(pairs: list[str], period: str):
+    """M1 de chaque paire (et d'EUR/USD pour la conversion), avec une marge de préchauffage."""
+    start, end = PERIODS[period]
+    load_start = (pd.Timestamp(start) - pd.Timedelta(days=WARMUP_DAYS)).date().isoformat()
+    m1s = {p: data.load_m1(p, load_start, end) for p in sorted(set(pairs) | {"EURUSD"})}
+    converter = Converter({p: df["close"] for p, df in m1s.items()})
+    return m1s, converter, pd.Timestamp(start, tz=data.TZ)
 
 
 def cmd_download(args):
@@ -63,8 +77,6 @@ def cmd_backtest(args):
             "Ajouter --final pour confirmer."
         )
     start, end = PERIODS[args.period]
-    load_start = (pd.Timestamp(start) - pd.Timedelta(days=WARMUP_DAYS)).date().isoformat()
-
     module = STRATEGIES[args.strategy]
     params = _parse_params(module.Params, args.param)
     account = Account(capital=args.capital, lot_step=args.lot_step)
@@ -72,13 +84,10 @@ def cmd_backtest(args):
     print(f"Paramètres : {params}")
     print(f"Compte : {account}\n")
 
-    needed = sorted(set(args.pairs) | {"EURUSD"})
-    m1s = {p: data.load_m1(p, load_start, end) for p in needed}
-    converter = Converter({p: df["close"] for p, df in m1s.items()})
+    m1s, converter, tz_start = _load(args.pairs, args.period)
     RESULTS_DIR.mkdir(exist_ok=True)
 
     rows, base_trades = [], {}
-    tz_start = pd.Timestamp(start, tz=data.TZ)
     for pair in args.pairs:
         signals = module.generate_signals(m1s[pair], params)
         signals = signals[signals["entry_time"] >= tz_start]
@@ -95,6 +104,36 @@ def cmd_backtest(args):
         print(f"\n--- {pair}, par année (coût {args.costs[0]} pip) ---")
         print(metrics.by_year(trades).to_string())
     print(f"\nTrades détaillés : {RESULTS_DIR}/")
+
+
+def cmd_sweep(args):
+    """Test de sensibilité sur la période de conception uniquement."""
+    module = STRATEGIES[args.strategy]
+    base = _parse_params(module.Params, args.param)
+    grid = {}
+    for item in args.grid:
+        key, _, raw = item.partition("=")
+        grid[key] = [_cast(module.Params, key, v) for v in raw.split(",")]
+    account = Account(capital=args.capital, lot_step=args.lot_step)
+    m1s, converter, tz_start = _load(args.pairs, "is")
+
+    rows = []
+    for combo in itertools.product(*grid.values()):
+        params = dataclasses.replace(base, **dict(zip(grid, combo)))
+        row = dict(zip(grid, combo))
+        for pair in args.pairs:
+            signals = module.generate_signals(m1s[pair], params)
+            trades = run(signals[signals["entry_time"] >= tz_start], m1s[pair], pair, params, account, args.cost, converter)
+            m = metrics.summarize(trades, account.capital)
+            row |= {f"{pair}_trades": m["trades"], f"{pair}_R_moyen": m.get("R_moyen"), f"{pair}_PF": m.get("profit_factor")}
+        rows.append(row)
+        print(row, flush=True)
+
+    table = pd.DataFrame(rows)
+    print(f"\n=== {args.strategy}, 2015–2021, coût {args.cost} pip ===")
+    print(table.to_string(index=False))
+    RESULTS_DIR.mkdir(exist_ok=True)
+    table.to_csv(RESULTS_DIR / f"sweep_{args.strategy}.csv", index=False)
 
 
 def main(argv=None):
@@ -121,6 +160,16 @@ def main(argv=None):
     b.add_argument("--capital", type=float, default=100.0)
     b.add_argument("--lot-step", type=int, default=1, help="pas de taille en unités (1000 = micro-lot)")
     b.set_defaults(func=cmd_backtest)
+
+    w = sub.add_parser("sweep", help="Test de sensibilité (période de conception seulement)")
+    w.add_argument("--strategy", choices=sorted(STRATEGIES), required=True)
+    w.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
+    w.add_argument("--grid", action="append", required=True, metavar="CLÉ=V1,V2,…", help="valeurs à tester")
+    w.add_argument("--param", action="append", default=[], metavar="CLÉ=VALEUR", help="paramètre fixe")
+    w.add_argument("--cost", type=float, default=1.1, help="coût aller-retour en pips")
+    w.add_argument("--capital", type=float, default=100.0)
+    w.add_argument("--lot-step", type=int, default=1)
+    w.set_defaults(func=cmd_sweep)
 
     args = ap.parse_args(argv)
     args.func(args)
