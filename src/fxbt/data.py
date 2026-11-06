@@ -8,11 +8,9 @@ points) et volume (float).
 
 from __future__ import annotations
 
+import http.client
 import lzma
 import time
-import urllib.error
-import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,7 +19,8 @@ import pandas as pd
 
 TZ = "Europe/Zurich"
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
-URL = "https://datafeed.dukascopy.com/datafeed/{pair}/{y}/{m:02d}/{d:02d}/{side}_candles_min_1.bi5"
+HOST = "datafeed.dukascopy.com"
+PATH = "/datafeed/{pair}/{y}/{m:02d}/{d:02d}/{side}_candles_min_1.bi5"
 OHLCV = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 _DTYPE = np.dtype([
@@ -38,28 +37,44 @@ def _point(pair: str) -> float:
     return 1e3 if pair.endswith("JPY") else 1e5
 
 
-def _fetch_day(pair: str, day: date, side: str) -> pd.DataFrame | None:
+class _Client:
+    """Connexion HTTPS persistante, une requête à la fois.
+
+    Dukascopy répond 503 dès qu'on va trop vite : on attend de plus en plus longtemps.
+    """
+
+    def __init__(self, pause: float = 0.2):
+        self.pause = pause
+        self.conn: http.client.HTTPSConnection | None = None
+
+    def get(self, path: str) -> bytes | None:
+        for attempt in range(12):
+            try:
+                if self.conn is None:
+                    self.conn = http.client.HTTPSConnection(HOST, timeout=30)
+                self.conn.request("GET", path, headers={"User-Agent": "Mozilla/5.0"})
+                resp = self.conn.getresponse()
+                body = resp.read()
+                if resp.status == 200:
+                    time.sleep(self.pause)
+                    return body
+                if resp.status == 404:
+                    return None
+                err = f"HTTP {resp.status}"
+            except (OSError, http.client.HTTPException) as e:
+                err = repr(e)
+                self.conn = None
+            wait = min(300, 10 * 2 ** attempt)
+            print(f"  {path} : {err}, nouvelle tentative dans {wait} s", flush=True)
+            time.sleep(wait)
+        raise RuntimeError(f"Échec du téléchargement de {path}")
+
+
+def _fetch_day(client: _Client, pair: str, day: date, side: str) -> pd.DataFrame | None:
     # Les mois commencent à 0 dans les URL Dukascopy.
-    url = URL.format(pair=pair, y=day.year, m=day.month - 1, d=day.day, side=side)
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    err: Exception | None = None
-    for attempt in range(5):
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read()
-            break
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            err = e
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-            err = e
-        time.sleep(2 ** attempt)
-    else:
-        raise RuntimeError(f"Échec du téléchargement de {url} : {err}")
+    raw = client.get(PATH.format(pair=pair, y=day.year, m=day.month - 1, d=day.day, side=side))
     if not raw:
         return None
-
     rec = np.frombuffer(lzma.decompress(raw), dtype=_DTYPE)
     p = _point(pair)
     index = pd.Timestamp(day.isoformat(), tz="UTC") + pd.to_timedelta(rec["t"].astype("int64"), unit="s")
@@ -75,21 +90,26 @@ def _fetch_day(pair: str, day: date, side: str) -> pd.DataFrame | None:
     )
 
 
-def year_path(pair: str, year: int, side: str = "BID") -> Path:
-    return DATA_DIR / "raw" / f"{pair}_{side}_M1_{year}.parquet"
+def month_path(pair: str, year: int, month: int, side: str = "BID") -> Path:
+    return DATA_DIR / "raw" / f"{pair}_{side}_M1_{year}-{month:02d}.parquet"
 
 
-def download_year(pair: str, year: int, side: str = "BID", workers: int = 8) -> Path | None:
-    """Télécharge une année de M1 en parquet (UTC). L'année en cours est toujours rafraîchie."""
-    path = year_path(pair, year, side)
+def download_month(client: _Client, pair: str, year: int, month: int, side: str = "BID") -> Path | None:
+    """Télécharge un mois de M1 en parquet (UTC). Un mois terminé n'est jamais retéléchargé."""
+    path = month_path(pair, year, month, side)
     today = datetime.now(timezone.utc).date()
-    if year > today.year or (path.exists() and year < today.year):
+    first = date(year, month, 1)
+    last = (pd.Timestamp(first) + pd.offsets.MonthEnd(0)).date()
+    if first >= today or (path.exists() and last < today):
         return path if path.exists() else None
 
-    last = min(date(year, 12, 31), today - timedelta(days=1))
-    days = [d.date() for d in pd.date_range(f"{year}-01-01", last.isoformat())]
-    with ThreadPoolExecutor(workers) as ex:
-        frames = [f for f in ex.map(lambda d: _fetch_day(pair, d, side), days) if f is not None and len(f)]
+    frames = []
+    for d in pd.date_range(first.isoformat(), min(last, today - timedelta(days=1)).isoformat()):
+        if d.day_of_week == 5:  # samedi : marché fermé
+            continue
+        f = _fetch_day(client, pair, d.date(), side)
+        if f is not None and len(f):
+            frames.append(f)
     if not frames:
         return None
 
@@ -101,6 +121,15 @@ def download_year(pair: str, year: int, side: str = "BID", workers: int = 8) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path)
     return path
+
+
+def download(pair: str, start_year: int, end_year: int, side: str = "BID"):
+    client = _Client()
+    for year in range(start_year, end_year + 1):
+        for month in range(1, 13):
+            path = download_month(client, pair, year, month, side)
+            if path:
+                print(f"{pair} {year}-{month:02d} : ok", flush=True)
 
 
 def load_m1(pair: str, start: str | None = None, end: str | None = None, side: str = "BID") -> pd.DataFrame:
@@ -133,13 +162,12 @@ def daily_bars(m1: pd.DataFrame) -> pd.DataFrame:
     return m1.groupby(key).agg(OHLCV)
 
 
-def check(m1: pd.DataFrame, pair: str) -> pd.DataFrame:
-    """Contrôle qualité par année : bougies, trous en semaine, nombre de décimales."""
+def check(m1: pd.DataFrame) -> pd.DataFrame:
+    """Contrôle qualité par année : nombre de bougies et trous en semaine."""
     idx = m1.index
     gaps = pd.Series(idx[1:] - idx[:-1], index=idx[1:])
     # On ignore la fermeture du week-end : vendredi soir → dimanche soir.
     weekday_gaps = gaps[(gaps > pd.Timedelta(minutes=30)) & (gaps < pd.Timedelta(hours=40))]
-    decimals = int(round(-np.log10(pip_size(pair)))) + 1
     out = pd.DataFrame({
         "bougies": m1.groupby(idx.year).size(),
         "trous_>30min": weekday_gaps.groupby(weekday_gaps.index.year).size(),
@@ -148,5 +176,4 @@ def check(m1: pd.DataFrame, pair: str) -> pd.DataFrame:
         "dernier": pd.Series(idx, index=idx).groupby(idx.year).max(),
     }).fillna({"trous_>30min": 0})
     out.index.name = "année"
-    out.attrs["decimales_attendues"] = decimals
     return out

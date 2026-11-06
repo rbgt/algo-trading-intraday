@@ -45,9 +45,7 @@ def _parse_params(cls, overrides: list[str]):
 
 def cmd_download(args):
     for pair in args.pairs:
-        for year in range(args.start_year, args.end_year + 1):
-            path = data.download_year(pair, year)
-            print(f"{pair} {year} : {path.name if path else 'aucune donnée'}", flush=True)
+        data.download(pair, args.start_year, args.end_year)
 
 
 def cmd_check(args):
@@ -55,7 +53,7 @@ def cmd_check(args):
         m1 = data.load_m1(pair)
         print(f"\n=== {pair} : {len(m1):,} bougies M1, de {m1.index[0]} à {m1.index[-1]} ===")
         print(f"Prix min/max : {m1['low'].min():.5f} / {m1['high'].max():.5f}")
-        print(data.check(m1, pair).to_string())
+        print(data.check(m1).to_string())
 
 
 def cmd_backtest(args):

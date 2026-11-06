@@ -40,3 +40,16 @@ def test_london_signals_respect_rules():
     level = asia["high"].max() if s["direction"] == 1 else asia["low"].min()
     assert (bar["close"] - level) * s["direction"] > 0
     assert np.isclose(s["stop_level"], (asia["high"].max() + asia["low"].min()) / 2)
+
+
+def test_ema_signals_respect_rules():
+    from fxbt.strategies import ema_breakout
+
+    m1 = synthetic_m1(days=60, seed=1)
+    p = ema_breakout.Params()
+    sig = ema_breakout.generate_signals(m1, p)
+    assert len(sig) > 0
+    tod = sig["entry_time"].dt.hour * 60 + sig["entry_time"].dt.minute
+    # Signal sur une bougie M5 ouverte entre 8h et 11h55, donc entrée entre 8h05 et 12h.
+    assert tod.between(8 * 60 + 5, 12 * 60).all()
+    assert (sig["stop_dist"] > 0).all() and sig["stop_level"].isna().all()
