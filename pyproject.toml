@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fxbt"
+version = "0.1.0"
+description = "Recherche de stratégies forex intraday : backtests sur données Dukascopy M1"
+requires-python = ">=3.11"
+dependencies = ["numpy", "pandas", "pyarrow"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
