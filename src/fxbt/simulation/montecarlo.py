@@ -118,17 +118,20 @@ def _trade_r(b, pair: str, entry_time, deadline, d: int, dist: float, rr: float,
     return (d * (exit_px - entry) - cost_in_price(pair, cost, entry) - swap) / dist
 
 
-def direction_null(strategy: str, params, m1s: dict, converter: Converter, start: pd.Timestamp,
-                   pairs: list[str], cost: float, flips: int, seed: int) -> pd.DataFrame:
-    """Compare le R moyen réel au R moyen des mêmes trades avec un sens tiré au hasard."""
+def direction_samples(strategy: str, params, m1s: dict, converter: Converter, start: pd.Timestamp,
+                      pairs: list[str], cost: float | None) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Pour chaque paire : sens réels des trades, et R de chaque trade s'il avait été pris à l'achat ou à la vente.
+
+    Chaque trade est simulé indépendamment, dans les deux sens, avec le même coût et le même swap.
+    """
     module = strategy_module(strategy)
-    rng = np.random.default_rng(seed)
-    rows = []
+    out = {}
     for pair in pairs:
         m1 = m1s[pair]
-        signals = module.generate_signals(m1, params, pair)
         pair_cost = _cost(pair, cost)
-        trades = run(signals[signals["entry_time"] >= start], m1, pair, params, account_for(pair), pair_cost, converter)
+        signals = module.generate_signals(m1, params, pair)
+        signals = signals[signals["entry_time"] >= start]
+        trades = run(signals, m1, pair, params, account_for(pair), pair_cost, converter)
         if trades.empty:
             continue
         b = to_bars(m1)
@@ -136,21 +139,31 @@ def direction_null(strategy: str, params, m1s: dict, converter: Converter, start
         rr = ((trades["target"] - trades["entry"]).abs().to_numpy()) / dist
         # Échéance de chaque trade : celle de son signal (le jour même en intraday, plusieurs jours en swing).
         deadline = trades["entry_time"].map(signals.drop_duplicates("entry_time").set_index("entry_time")["deadline"])
-        # Chaque trade simulé indépendamment, dans les deux sens, au même coût.
         r_long = np.array([_trade_r(b, pair, t, dl, 1, s, k, pair_cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
         r_short = np.array([_trade_r(b, pair, t, dl, -1, s, k, pair_cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
-        actual = np.where(trades["direction"].to_numpy() == 1, r_long, r_short).mean()
-        coins = rng.integers(0, 2, size=(flips, len(trades))).astype(bool)
-        null = np.where(coins, r_long, r_short).mean(axis=1)
-        rows.append({
-            "paire": pair,
-            "trades": len(trades),
-            "R_stratégie": round(float(actual), 3),
-            "R_hasard_médian": round(float(np.median(null)), 3),
-            "R_hasard_p95": round(float(np.quantile(null, 0.95)), 3),
-            "part_du_hasard_qui_fait_mieux_%": round(float((null >= actual).mean() * 100), 1),
-        })
-    return pd.DataFrame(rows)
+        out[pair] = (trades["direction"].to_numpy(), r_long, r_short)
+    return out
+
+
+def null_summary(direction: np.ndarray, r_long: np.ndarray, r_short: np.ndarray, flips: int, rng) -> dict:
+    actual = np.where(direction == 1, r_long, r_short).mean()
+    coins = rng.integers(0, 2, size=(flips, len(direction))).astype(bool)
+    null = np.where(coins, r_long, r_short).mean(axis=1)
+    return {
+        "trades": len(direction),
+        "R_stratégie": round(float(actual), 3),
+        "R_hasard_médian": round(float(np.median(null)), 3),
+        "R_hasard_p95": round(float(np.quantile(null, 0.95)), 3),
+        "part_du_hasard_qui_fait_mieux_%": round(float((null >= actual).mean() * 100), 1),
+    }
+
+
+def direction_null(strategy: str, params, m1s: dict, converter: Converter, start: pd.Timestamp,
+                   pairs: list[str], cost: float | None, flips: int, seed: int) -> pd.DataFrame:
+    """Compare le R moyen réel au R moyen des mêmes trades avec un sens tiré au hasard, paire par paire."""
+    rng = np.random.default_rng(seed)
+    samples = direction_samples(strategy, params, m1s, converter, start, pairs, cost)
+    return pd.DataFrame([{"paire": pair, **null_summary(*arrays, flips, rng)} for pair, arrays in samples.items()])
 
 
 def default_workers() -> int:
