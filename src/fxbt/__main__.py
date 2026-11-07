@@ -1,6 +1,7 @@
 """Ligne de commande.
 
     python -m fxbt download --pairs EURUSD GBPUSD
+    python -m fxbt import-histdata --pairs EURUSD GBPUSD
     python -m fxbt check --pairs EURUSD GBPUSD
     python -m fxbt backtest --strategy london_breakout
     python -m fxbt backtest --strategy ema_breakout --param rr=1.5 --costs 1.1
@@ -48,11 +49,11 @@ def _parse_params(cls, overrides: list[str]):
     return cls(**values)
 
 
-def _load(pairs: list[str], period: str):
+def _load(pairs: list[str], period: str, source: str):
     """M1 de chaque paire (et d'EUR/USD pour la conversion), avec une marge de préchauffage."""
     start, end = PERIODS[period]
     load_start = (pd.Timestamp(start) - pd.Timedelta(days=WARMUP_DAYS)).date().isoformat()
-    m1s = {p: data.load_m1(p, load_start, end) for p in sorted(set(pairs) | {"EURUSD"})}
+    m1s = {p: data.load_m1(p, load_start, end, source) for p in sorted(set(pairs) | {"EURUSD"})}
     converter = Converter({p: df["close"] for p, df in m1s.items()})
     return m1s, converter, pd.Timestamp(start, tz=data.TZ)
 
@@ -62,9 +63,22 @@ def cmd_download(args):
         data.download(pair, args.start_year, args.end_year)
 
 
+def cmd_import_histdata(args):
+    for pair in args.pairs:
+        paths = data.import_histdata(pair)
+        print(f"{pair} : {len(paths)} mois importés ({paths[0].stem[-7:]} → {paths[-1].stem[-7:]})")
+
+
+def cmd_compare(args):
+    for pair in args.pairs:
+        a, b = data.load_m1(pair, source="dukascopy"), data.load_m1(pair, source="histdata")
+        print(f"\n=== {pair} : Dukascopy vs HistData ===")
+        print(data.compare_sources(a, b, pair).to_string(index=False))
+
+
 def cmd_check(args):
     for pair in args.pairs:
-        m1 = data.load_m1(pair)
+        m1 = data.load_m1(pair, source=args.source)
         print(f"\n=== {pair} : {len(m1):,} bougies M1, de {m1.index[0]} à {m1.index[-1]} ===")
         print(f"Prix min/max : {m1['low'].min():.5f} / {m1['high'].max():.5f}")
         print(data.check(m1).to_string())
@@ -80,11 +94,11 @@ def cmd_backtest(args):
     module = STRATEGIES[args.strategy]
     params = _parse_params(module.Params, args.param)
     account = Account(capital=args.capital, lot_step=args.lot_step)
-    print(f"Stratégie : {args.strategy}  |  période : {start} → {end or 'aujourd’hui'}")
+    print(f"Stratégie : {args.strategy}  |  période : {start} → {end or 'aujourd’hui'}  |  source : {args.source}")
     print(f"Paramètres : {params}")
     print(f"Compte : {account}\n")
 
-    m1s, converter, tz_start = _load(args.pairs, args.period)
+    m1s, converter, tz_start = _load(args.pairs, args.period, args.source)
     RESULTS_DIR.mkdir(exist_ok=True)
 
     rows, base_trades = [], {}
@@ -115,7 +129,7 @@ def cmd_sweep(args):
         key, _, raw = item.partition("=")
         grid[key] = [_cast(module.Params, key, v) for v in raw.split(",")]
     account = Account(capital=args.capital, lot_step=args.lot_step)
-    m1s, converter, tz_start = _load(args.pairs, "is")
+    m1s, converter, tz_start = _load(args.pairs, "is", args.source)
 
     rows = []
     for combo in itertools.product(*grid.values()):
@@ -146,8 +160,17 @@ def main(argv=None):
     d.add_argument("--end-year", type=int, default=pd.Timestamp.now().year)
     d.set_defaults(func=cmd_download)
 
+    h = sub.add_parser("import-histdata", help="Importer les fichiers HistData de data/histdata/")
+    h.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
+    h.set_defaults(func=cmd_import_histdata)
+
+    k = sub.add_parser("compare", help="Comparer Dukascopy et HistData sur leur période commune")
+    k.add_argument("--pairs", nargs="+", default=["EURUSD"])
+    k.set_defaults(func=cmd_compare)
+
     c = sub.add_parser("check", help="Contrôler la qualité des données")
     c.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
+    c.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
     c.set_defaults(func=cmd_check)
 
     b = sub.add_parser("backtest", help="Lancer un backtest")
@@ -159,6 +182,7 @@ def main(argv=None):
     b.add_argument("--param", action="append", default=[], metavar="CLÉ=VALEUR", help="modifier un paramètre")
     b.add_argument("--capital", type=float, default=100.0)
     b.add_argument("--lot-step", type=int, default=1, help="pas de taille en unités (1000 = micro-lot)")
+    b.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
     b.set_defaults(func=cmd_backtest)
 
     w = sub.add_parser("sweep", help="Test de sensibilité (période de conception seulement)")
@@ -169,6 +193,7 @@ def main(argv=None):
     w.add_argument("--cost", type=float, default=1.1, help="coût aller-retour en pips")
     w.add_argument("--capital", type=float, default=100.0)
     w.add_argument("--lot-step", type=int, default=1)
+    w.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
     w.set_defaults(func=cmd_sweep)
 
     args = ap.parse_args(argv)

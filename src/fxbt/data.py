@@ -1,9 +1,13 @@
-"""Téléchargement et chargement des bougies M1 Dukascopy.
+"""Téléchargement, import et chargement des bougies M1.
 
-Les fichiers Dukascopy sont journaliers (UTC), compressés en LZMA. Chaque
-enregistrement fait 24 octets, en big-endian :
-secondes depuis minuit, ouverture, clôture, plus bas, plus haut (entiers en
-points) et volume (float).
+Deux sources, stockées en parquet mensuel (UTC) dans data/raw/ :
+
+- Dukascopy (téléchargée par `download`) : fichiers journaliers (UTC), compressés en
+  LZMA. Chaque enregistrement fait 24 octets, en big-endian : secondes depuis minuit,
+  ouverture, clôture, plus bas, plus haut (entiers en points) et volume (float).
+- HistData.com (téléchargée à la main, importée par `import-histdata`) : CSV « Generic
+  ASCII » `AAAAMMJJ HHMMSS;open;high;low;close;volume`, en heure de New York sans heure
+  d'été (UTC−5 toute l'année).
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from __future__ import annotations
 import http.client
 import lzma
 import time
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +24,8 @@ import pandas as pd
 
 TZ = "Europe/Zurich"
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+HIST_DIR = DATA_DIR / "histdata"
+SOURCES = {"dukascopy": "BID", "histdata": "HIST"}  # source → étiquette des fichiers
 HOST = "datafeed.dukascopy.com"
 PATH = "/datafeed/{pair}/{y}/{m:02d}/{d:02d}/{side}_candles_min_1.bi5"
 OHLCV = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
@@ -135,11 +142,49 @@ def download(pair: str, start_year: int, end_year: int, side: str = "BID"):
                 print(f"{pair} {year}-{month:02d} : ok", flush=True)
 
 
-def load_m1(pair: str, start: str | None = None, end: str | None = None, side: str = "BID") -> pd.DataFrame:
+def _save_monthly(df: pd.DataFrame, pair: str, tag: str) -> list[Path]:
+    paths = []
+    for (y, m), part in df.groupby([df.index.year, df.index.month]):
+        path = DATA_DIR / "raw" / f"{pair}_{tag}_M1_{y}-{m:02d}.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        part.to_parquet(path)
+        paths.append(path)
+    return paths
+
+
+def _read_histdata_csv(fh) -> pd.DataFrame:
+    df = pd.read_csv(fh, sep=";", header=None, names=["time", "open", "high", "low", "close", "volume"])
+    idx = pd.to_datetime(df.pop("time"), format="%Y%m%d %H%M%S")
+    # Heure de New York sans heure d'été = UTC−5 fixe (« Etc/GMT+5 » a le signe inversé).
+    df.index = pd.DatetimeIndex(idx).tz_localize("Etc/GMT+5").tz_convert("UTC")
+    df.index.name = "time"
+    return df.astype("float64")
+
+
+def import_histdata(pair: str) -> list[Path]:
+    """Convertit les zip/CSV HistData de data/histdata/ en parquet mensuels."""
+    frames = []
+    for f in sorted(HIST_DIR.glob(f"*{pair}*")):
+        if f.suffix.lower() == ".zip":
+            with zipfile.ZipFile(f) as z:
+                for name in z.namelist():
+                    if name.lower().endswith(".csv"):
+                        with z.open(name) as fh:
+                            frames.append(_read_histdata_csv(fh))
+        elif f.suffix.lower() == ".csv":
+            frames.append(_read_histdata_csv(f))
+    if not frames:
+        raise FileNotFoundError(f"Aucun fichier HistData pour {pair} dans {HIST_DIR}")
+    df = pd.concat(frames).sort_index()
+    df = df[~df.index.duplicated()]
+    return _save_monthly(df, pair, SOURCES["histdata"])
+
+
+def load_m1(pair: str, start: str | None = None, end: str | None = None, source: str = "histdata") -> pd.DataFrame:
     """Bougies M1 en heure de Zurich, sur [start, end)."""
-    files = sorted((DATA_DIR / "raw").glob(f"{pair}_{side}_M1_*.parquet"))
+    files = sorted((DATA_DIR / "raw").glob(f"{pair}_{SOURCES[source]}_M1_*.parquet"))
     if not files:
-        raise FileNotFoundError(f"Aucune donnée pour {pair}. Lancer d'abord : python -m fxbt download")
+        raise FileNotFoundError(f"Aucune donnée {source} pour {pair} (voir le README, section Données)")
     df = pd.concat(pd.read_parquet(f) for f in files).sort_index()
     df.index = df.index.tz_convert(TZ)
     if start:
@@ -147,6 +192,27 @@ def load_m1(pair: str, start: str | None = None, end: str | None = None, side: s
     if end:
         df = df[df.index < pd.Timestamp(end, tz=TZ)]
     return df
+
+
+def compare_sources(a: pd.DataFrame, b: pd.DataFrame, pair: str) -> pd.DataFrame:
+    """Compare deux sources minute par minute sur leur période commune.
+
+    Un décalage horaire mal géré se voit tout de suite : l'écart est minimal
+    pour un décalage de 0 minute et grandit pour ±60 minutes.
+    """
+    lo, hi = max(a.index[0], b.index[0]), min(a.index[-1], b.index[-1])
+    a, b = a.loc[lo:hi, "close"], b.loc[lo:hi, "close"]
+    rows = []
+    for shift in (-60, 0, 60):
+        joined = pd.concat([a, b.shift(freq=pd.Timedelta(minutes=shift))], axis=1, keys=["a", "b"], join="inner")
+        diff = (joined["a"] - joined["b"]).abs() / pip_size(pair)
+        rows.append({
+            "décalage_min": shift,
+            "minutes_communes": len(joined),
+            "écart_médian_pips": round(float(diff.median()), 2),
+            "écart_p99_pips": round(float(diff.quantile(0.99)), 2),
+        })
+    return pd.DataFrame(rows)
 
 
 def resample(m1: pd.DataFrame, rule: str) -> pd.DataFrame:

@@ -11,12 +11,27 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 ```
 
+## Données
+
+Source principale : **HistData.com** (gratuit, M1).
+1. Sur https://www.histdata.com/download-free-forex-data/, choisir « ASCII », puis « 1 Minute Bar Quotes ».
+2. Pour EUR/USD et GBP/USD, télécharger chaque année de 2014 à l'année dernière, puis chaque mois de
+   l'année en cours.
+3. Déposer les zip tels quels dans `data/histdata/`.
+
+Ces fichiers sont en heure de New York sans heure d'été (UTC−5 toute l'année) ; l'import les convertit.
+
+Source secondaire : **Dukascopy** (`download`). Le serveur limite fortement le débit et bannit
+l'adresse IP pendant des heures (erreur 429) si on insiste. Elle sert surtout à vérifier HistData
+avec `compare`.
+
 ## Utilisation
 
 ```bash
-# 1. Données : M1 Bid, de 2014 à aujourd'hui (2014 sert au préchauffage des indicateurs)
-.venv/bin/python -m fxbt download --pairs EURUSD GBPUSD
+# 1. Données
+.venv/bin/python -m fxbt import-histdata --pairs EURUSD GBPUSD
 .venv/bin/python -m fxbt check
+.venv/bin/python -m fxbt compare --pairs EURUSD   # concordance avec Dukascopy
 
 # 2. Backtest sur la période de conception (2015–2021), coûts de 1,1, 1,5 et 2 pips
 .venv/bin/python -m fxbt backtest --strategy london_breakout
@@ -30,12 +45,14 @@ python3 -m venv .venv
 ```
 
 Les trades détaillés sont écrits dans `results/`. Les données vont dans `data/` (non versionné).
+Toutes les commandes acceptent `--source dukascopy` ou `--source histdata` (par défaut). Une analyse
+utilise toujours une seule source, sans mélange.
 
 ## Organisation
 
 | Fichier | Rôle |
 |---|---|
-| `src/fxbt/data.py` | Téléchargement Dukascopy, conversion en heure de Zurich, agrégation M5/M15/jour, contrôle qualité |
+| `src/fxbt/data.py` | Import HistData, téléchargement Dukascopy, conversion en heure de Zurich, agrégation M5/M15/jour, contrôles |
 | `src/fxbt/indicators.py` | EMA, RSI, ATR (lissage de Wilder, comme TradingView) |
 | `src/fxbt/engine.py` | Simulation des trades en M1 : taille, levier, coûts, limites par jour |
 | `src/fxbt/metrics.py` | Réussite, R moyen, profit factor, drawdown, résultats par année |
@@ -52,7 +69,7 @@ Puis l'ajouter au dictionnaire `STRATEGIES` dans `strategies/__init__.py`.
 
 ## Hypothèses de simulation
 
-- **Prix** : bougies Bid Dukascopy. Le spread et le glissement sont modélisés par un coût
+- **Prix** : bougies Bid (HistData ou Dukascopy). Le spread et le glissement sont modélisés par un coût
   fixe aller-retour en pips (1,1 pip par défaut, testé aussi à 1,5 et 2).
 - **Signal** sur la clôture d'une bougie, **entrée** à l'ouverture de la suivante.
 - **Sorties résolues en M1** : si le stop et l'objectif sont touchés dans la même minute, le stop
