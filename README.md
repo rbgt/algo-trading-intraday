@@ -1,8 +1,7 @@
 # algo-trading-python
 
 Recherche de stratégies forex intraday (EUR/USD, GBP/USD) sur plus de 10 ans de données
-Dukascopy M1, avec un moteur de backtest simple et vérifiable. Le contexte complet et la
-méthode sont décrits dans [CLAUDE.md](CLAUDE.md).
+M1 (HistData, Dukascopy), avec un moteur de backtest simple et vérifiable.
 
 ## Installation
 
