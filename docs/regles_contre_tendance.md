@@ -65,3 +65,27 @@ On change un réglage à la fois, les autres restent à leur valeur de base :
 | Stop (× ATR journalier) | 0,5 | 0,4 · 0,6 |
 | Objectif (R) | 1,5 | 1,0 · 2,0 |
 | Fin de la fenêtre d'entrée | 12h | 11h |
+
+## 5. Résultat (2015–2021, HistData) : **rejetée**
+
+Test lancé après le commit des règles ci-dessus, sans modification.
+
+| Paire | Trades | R moyen net (1,1 pip) | Profit factor | Années positives | R moyen net (1,5 pip) |
+|---|---|---|---|---|---|
+| EUR/USD | 1 118 | −0,026 | 0,93 | 2 / 7 | −0,037 |
+| GBP/USD | 1 120 | −0,004 | 0,99 | 3 / 7 | −0,011 |
+
+Critères 1, 2, 3, 4 et 6 non remplis. Toutes les variantes de la section 4 donnent entre −0,05 et +0,004 R,
+donc rien de proche du seuil de +0,05 R.
+
+Ce qu'on apprend :
+- Le stop large a bien fonctionné comme prévu : le coût ne pèse plus qu'environ 0,02 à 0,03 R par trade.
+  Mais le gain **brut** est nul (+0,003 R sur EUR/USD, +0,016 R sur GBP/USD) : il n'y a rien à protéger.
+- Un étirement plus fort (`E` ≥ 1,0) donne un résultat **pire**, alors que l'idée prédisait l'inverse.
+  C'est un argument direct contre l'hypothèse du retour à la moyenne.
+- 60 % des trades sortent à 17h : sur une demi-journée, le prix ne revient pas assez vers sa moyenne
+  pour atteindre 1,5 R.
+- L'écart « contre la tendance » vu dans l'EMA Breakout (+0,10 R brut) ne se retrouve pas ici. C'était
+  probablement du bruit, ou un effet lié aux stops minuscules de cette stratégie.
+
+La période 2022–2026 n'a pas été utilisée.

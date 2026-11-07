@@ -95,3 +95,10 @@ def test_daily_limits_and_one_position_at_a_time():
     t = backtest(sigs, m1, params=BaseParams(max_trades_per_day=3, max_consec_losses=2))
     # 08:00 → stop à 08:04 ; 08:02 ignoré (position ouverte) ; 08:05 → stop à 08:09 ; 08:10 bloqué (2 pertes).
     assert list(t.entry_time.dt.strftime("%H:%M")) == ["08:00", "08:05"]
+
+
+def test_min_stop_guard():
+    m1 = make_m1(flat_until_17([(1.1000, 1.1001, 1.0999, 1.1000)], 1.1000))
+    params = BaseParams(max_trades_per_day=5, min_stop_pips=20)
+    assert backtest(signal(stop_dist=0.0019), m1, params=params).empty
+    assert len(backtest(signal(stop_dist=0.0020), m1, params=params)) == 1

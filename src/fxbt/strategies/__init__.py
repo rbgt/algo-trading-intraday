@@ -5,9 +5,10 @@ Pour en ajouter une : créer un module avec une dataclass `Params` (héritant de
 l'enregistrer ci-dessous.
 """
 
-from . import ema_breakout, london_breakout
+from . import contre_tendance, ema_breakout, london_breakout
 
 STRATEGIES = {
     "ema_breakout": ema_breakout,
     "london_breakout": london_breakout,
+    "contre_tendance": contre_tendance,
 }

@@ -39,6 +39,7 @@ class BaseParams:
     max_trades_per_day: int = 1
     max_consec_losses: int = 0  # 0 = pas de limite
     flat_hour: int = 17
+    min_stop_pips: float = 0.0  # trade ignoré si le stop est plus court
 
 
 @dataclass(frozen=True)
@@ -163,7 +164,7 @@ def run(
         d = int(s.direction)
         entry = float(b.open[i0])
         dist = s.stop_dist if not math.isnan(s.stop_dist) else d * (entry - s.stop_level)
-        if not dist > 0:
+        if not dist > 0 or dist / pip < params.min_stop_pips:
             continue
         stop = entry - d * dist
         target = entry + d * s.rr * dist

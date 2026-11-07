@@ -53,3 +53,25 @@ def test_ema_signals_respect_rules():
     # Signal sur une bougie M5 ouverte entre 8h et 11h55, donc entrée entre 8h05 et 12h.
     assert tod.between(8 * 60 + 5, 12 * 60).all()
     assert (sig["stop_dist"] > 0).all() and sig["stop_level"].isna().all()
+
+
+def test_contre_tendance_trades_against_daily_stretch():
+    from fxbt.data import daily_bars
+    from fxbt.indicators import atr, ema
+    from fxbt.strategies import contre_tendance
+
+    m1 = synthetic_m1(days=200, seed=2)
+    p = contre_tendance.Params(min_stop_pips=0)
+    sig = contre_tendance.generate_signals(m1, p)
+    assert len(sig) > 0
+    tod = sig["entry_time"].dt.hour * 60 + sig["entry_time"].dt.minute
+    assert tod.between(8 * 60 + 15, 12 * 60).all()
+
+    # Vérification à la main : la vente suit une veille étirée vers le haut, l'achat l'inverse.
+    daily = daily_bars(m1)
+    e = ((daily["close"] - ema(daily["close"], 50)) / atr(daily, 14)).shift(1)
+    a = atr(daily, 14).shift(1)
+    for s in sig.itertuples():
+        d = s.day.tz_localize(None)
+        assert (e[d] >= 0.5) if s.direction == -1 else (e[d] <= -0.5)
+        assert np.isclose(s.stop_dist, 0.5 * a[d])
