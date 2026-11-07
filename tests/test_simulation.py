@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fxbt.engine import Account, BaseParams, Converter, run
+from fxbt.simulation.engine import Account, Converter, run
+from fxbt.strategies.base import BaseParams
 
 TZ = "Europe/Zurich"
 DAY = pd.Timestamp("2020-03-02", tz=TZ)  # un lundi
@@ -115,7 +116,7 @@ def test_target_level_and_min_target_r():
 
 
 def test_montecarlo_sampling_respects_space():
-    from fxbt.montecarlo import sample_params
+    from fxbt.simulation.montecarlo import sample_params
 
     space = {"a": ("int", 2, 5), "b": ("float", 0.1, 0.4), "c": ("choice", [True, False])}
     samples = sample_params(space, 200, seed=1)

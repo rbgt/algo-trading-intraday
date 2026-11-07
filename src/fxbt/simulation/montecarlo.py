@@ -16,10 +16,11 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import pandas as pd
 
-from . import data, metrics
-from .data import pip_size
+from .. import data
+from ..data import pip_size
+from ..strategies import STRATEGIES
+from . import metrics
 from .engine import Account, Converter, resolve_exit, run, to_bars
-from .strategies import STRATEGIES
 
 _WORKER: dict = {}
 

@@ -19,8 +19,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import data, metrics, montecarlo
-from .engine import Account, Converter, run
+from . import data
+from .simulation import metrics, montecarlo
+from .simulation.engine import Account, Converter, run
 from .strategies import STRATEGIES
 
 # Conception sur 2015–2021. 2022 → aujourd'hui est réservé à une seule validation finale.

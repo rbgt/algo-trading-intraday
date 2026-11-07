@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 
 from ..data import daily_bars, resample
-from ..engine import SIGNAL_COLUMNS, BaseParams
-from ..indicators import atr, ema
+from .base import SIGNAL_COLUMNS, BaseParams
+from .indicators import atr, ema
 
 
 @dataclass(frozen=True)

@@ -57,7 +57,7 @@ def test_ema_signals_respect_rules():
 
 def test_contre_tendance_trades_against_daily_stretch():
     from fxbt.data import daily_bars
-    from fxbt.indicators import atr, ema
+    from fxbt.strategies.indicators import atr, ema
     from fxbt.strategies import contre_tendance
 
     m1 = synthetic_m1(days=200, seed=2)

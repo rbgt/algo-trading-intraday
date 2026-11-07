@@ -23,8 +23,8 @@ import numpy as np
 import pandas as pd
 
 from ..data import OHLCV, TZ, resample
-from ..engine import SIGNAL_COLUMNS, BaseParams
-from ..indicators import atr, swing_points
+from .base import SIGNAL_COLUMNS, BaseParams
+from .indicators import atr, swing_points
 
 
 @dataclass(frozen=True)

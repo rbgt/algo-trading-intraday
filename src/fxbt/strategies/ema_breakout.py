@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 
 from ..data import resample
-from ..engine import SIGNAL_COLUMNS, BaseParams
-from ..indicators import atr, ema, rsi
+from .base import SIGNAL_COLUMNS, BaseParams
+from .indicators import atr, ema, rsi
 
 
 @dataclass(frozen=True)

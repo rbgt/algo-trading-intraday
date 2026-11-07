@@ -1,8 +1,7 @@
-"""Registre des stratégies.
+"""Stratégies : règles et signaux, sans dépendance au moteur de simulation.
 
-Pour en ajouter une : créer un module avec une dataclass `Params` (héritant de
-`engine.BaseParams`) et une fonction `generate_signals(m1, params)`, puis
-l'enregistrer ci-dessous.
+Pour en ajouter une : créer un module qui respecte l'interface décrite dans base.py,
+puis l'enregistrer ci-dessous.
 """
 
 from . import breakout_pa_v2, breakout_price_action, contre_tendance, ema_breakout, london_breakout

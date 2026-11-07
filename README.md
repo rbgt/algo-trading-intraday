@@ -161,23 +161,39 @@ avec `compare`.
 
 ## Organisation
 
-| Fichier | Rôle |
-|---|---|
-| `src/fxbt/data.py` | Import HistData, téléchargement Dukascopy, conversion en heure de Zurich, agrégation M5/M15/jour, contrôles |
-| `src/fxbt/indicators.py` | EMA, RSI, ATR (lissage de Wilder, comme TradingView) |
-| `src/fxbt/engine.py` | Simulation des trades en M1 : taille, levier, coûts, limites par jour |
-| `src/fxbt/metrics.py` | Réussite, R moyen, profit factor, drawdown, résultats par année |
-| `src/fxbt/strategies/` | Une stratégie par module, enregistrée dans `STRATEGIES` |
+Le code est séparé en trois blocs. Les dépendances vont dans un seul sens : la simulation exécute les
+stratégies, mais les stratégies ne connaissent pas la simulation.
+
+```
+src/fxbt/
+├── data.py                  # DONNÉES : téléchargement, import, fuseau horaire, agrégation, contrôles
+├── strategies/              # STRATÉGIES : règles et signaux uniquement
+│   ├── base.py              #   interface commune (BaseParams, colonnes des signaux)
+│   ├── indicators.py        #   EMA, RSI, ATR, sommets et creux
+│   ├── ema_breakout.py
+│   ├── london_breakout.py
+│   ├── contre_tendance.py
+│   ├── breakout_price_action.py
+│   └── breakout_pa_v2.py
+├── simulation/              # SIMULATION : exécution et évaluation
+│   ├── engine.py            #   moteur : taille, levier, coûts, sorties résolues en M1
+│   ├── metrics.py           #   réussite, R moyen, profit factor, drawdown, par année
+│   └── montecarlo.py        #   Monte-Carlo sur les paramètres et test contre le hasard
+└── __main__.py              # ligne de commande
+docs/                        # règles de chaque stratégie, écrites avant le test, et verdicts
+tests/                       # test_data.py, test_strategies.py, test_simulation.py
+```
 
 ### Ajouter une stratégie
 
-Créer `src/fxbt/strategies/ma_strategie.py` avec :
+Créer `src/fxbt/strategies/ma_strategie.py` en respectant l'interface décrite dans `strategies/base.py` :
 - une dataclass `Params(BaseParams)`, qui contient tous les réglages et les limites par jour ;
 - une fonction `generate_signals(m1, params)`, qui renvoie un DataFrame de signaux candidats
-  (colonnes décrites dans `engine.SIGNAL_COLUMNS`, plus la colonne facultative `target_level` pour un objectif
-  à un niveau de prix).
+  (colonnes `SIGNAL_COLUMNS`, plus la colonne facultative `target_level` pour un objectif à un niveau de prix) ;
+- un dictionnaire `PARAM_SPACE`, qui donne les plages de tirage pour le Monte-Carlo.
 
-Puis l'ajouter au dictionnaire `STRATEGIES` dans `strategies/__init__.py`.
+Puis l'ajouter au dictionnaire `STRATEGIES` dans `strategies/__init__.py`. Une stratégie n'importe rien
+de `simulation/`.
 
 ## Hypothèses de simulation
 
