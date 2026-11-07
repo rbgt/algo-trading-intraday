@@ -13,6 +13,7 @@ Deux sources, stockées en parquet mensuel (UTC) dans data/raw/ :
 from __future__ import annotations
 
 import http.client
+import os
 import io
 import lzma
 import re
@@ -29,7 +30,9 @@ import numpy as np
 import pandas as pd
 
 TZ = "Europe/Zurich"
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# Dossier des données : celui du repo, sauf si la variable d'environnement FXBT_DATA_DIR en indique un autre
+# (utile quand fxbt est utilisé comme bibliothèque par un autre repo).
+DATA_DIR = Path(os.environ.get("FXBT_DATA_DIR", Path(__file__).resolve().parents[2] / "data"))
 HIST_DIR = DATA_DIR / "histdata"
 INDEX_DIR = DATA_DIR / "indices"
 INDICES = {"^GSPC": "S&P 500", "^GDAXI": "DAX", "^FTSE": "FTSE 100", "^SSMI": "SMI"}
@@ -46,16 +49,20 @@ class Instrument:
     max_leverage: float
     lot_step: float  # plus petite taille de position
     source: str | None = None  # source imposée (sinon celle choisie en ligne de commande)
+    financing_pct: float = 0.0  # coût de portage d'une nuit, en % du nominal par an (swap)
+    weekend: bool = False  # cote le week-end (crypto) : un swap chaque nuit, sans triple swap du mercredi
 
 
 INSTRUMENTS = {
-    "EURUSD": Instrument(0.0001, (1.1, 1.5, 2.0), "pips", 5.0, 1),
-    "GBPUSD": Instrument(0.0001, (1.1, 1.5, 2.0), "pips", 5.0, 1),
+    # Swap : environ 3 %/an quelle que soit la position (marge du broker, écart de taux ignoré : hypothèse prudente).
+    "EURUSD": Instrument(0.0001, (1.1, 1.5, 2.0), "pips", 5.0, 1, financing_pct=3.0),
+    "GBPUSD": Instrument(0.0001, (1.1, 1.5, 2.0), "pips", 5.0, 1, financing_pct=3.0),
     # Spread plus large sur USD/CHF chez les brokers particuliers.
-    "USDCHF": Instrument(0.0001, (1.5, 2.0, 2.5), "pips", 5.0, 1),
+    "USDCHF": Instrument(0.0001, (1.5, 2.0, 2.5), "pips", 5.0, 1, financing_pct=3.0),
     # BTC/USDT de Binance (l'USDT vaut environ 1 USD). Un « pip » vaut 1 USD. Levier plafonné à 1:2 pour les
     # cryptos chez les brokers européens régulés. Coûts à vérifier chez le broker : 0,2 % aller-retour de base.
-    "BTCUSD": Instrument(1.0, (0.2, 0.3, 0.5), "%", 2.0, 0.0001, source="binance"),
+    # Swap des CFD crypto : environ 0,05 % par nuit, soit environ 20 %/an.
+    "BTCUSD": Instrument(1.0, (0.2, 0.3, 0.5), "%", 2.0, 0.0001, source="binance", financing_pct=20.0, weekend=True),
 }
 HOST = "datafeed.dukascopy.com"
 PATH = "/datafeed/{pair}/{y}/{m:02d}/{d:02d}/{side}_candles_min_1.bi5"
@@ -71,6 +78,37 @@ def pip_size(pair: str) -> float:
     if pair in INSTRUMENTS:
         return INSTRUMENTS[pair].pip
     return 0.01 if pair.endswith("JPY") else 0.0001
+
+
+def rollovers(pair: str, entry: pd.Timestamp, exit_: pd.Timestamp) -> int:
+    """Nombre de swaps payés entre l'entrée et la sortie.
+
+    Le swap est prélevé à chaque passage de 17h à New York. Forex : du lundi au vendredi, triple le mercredi
+    (pour couvrir le week-end). Crypto : chaque nuit.
+    """
+    inst = INSTRUMENTS.get(pair)
+    if inst is None or not inst.financing_pct or exit_ <= entry:
+        return 0
+    ny_entry, ny_exit = entry.tz_convert("America/New_York"), exit_.tz_convert("America/New_York")
+    days = pd.date_range(ny_entry.normalize(), ny_exit.normalize(), freq="D")
+    count = 0
+    for d in days:
+        roll = d + pd.Timedelta(hours=17)
+        if not (ny_entry < roll <= ny_exit):
+            continue
+        if inst.weekend:
+            count += 1
+        elif d.day_of_week < 5:
+            count += 3 if d.day_of_week == 2 else 1
+    return count
+
+
+def financing_in_price(pair: str, entry: pd.Timestamp, exit_: pd.Timestamp, price: float, multiplier: float = 1.0) -> float:
+    """Coût de portage total (swaps) en unité de prix, par unité de position."""
+    inst = INSTRUMENTS.get(pair)
+    if inst is None or not inst.financing_pct:
+        return 0.0
+    return price * inst.financing_pct / 100 * multiplier * rollovers(pair, entry, exit_) / 365
 
 
 def cost_in_price(pair: str, cost: float, price: float) -> float:

@@ -20,7 +20,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from ..data import INSTRUMENTS, cost_in_price, pip_size
+from ..data import INSTRUMENTS, cost_in_price, financing_in_price, pip_size
 from ..strategies.base import BaseParams
 
 @dataclass(frozen=True)
@@ -136,9 +136,11 @@ def run(
     converter: Converter,
     news_times: np.ndarray | None = None,
     news_window_min: int = 0,
+    financing_multiplier: float = 1.0,
 ) -> pd.DataFrame:
     """Simule les signaux. news_times : heures des annonces (int64, ns, triées) ; aucune entrée à moins
-    de news_window_min minutes avant ou après l'une d'elles."""
+    de news_window_min minutes avant ou après l'une d'elles. Les positions gardées après 17h à New York paient
+    le swap de l'instrument (× financing_multiplier) ; c'est sans effet en intraday."""
     b = to_bars(m1)
     pip = pip_size(pair)
     base, quote = pair[:3], pair[3:]
@@ -192,7 +194,9 @@ def run(
             continue
 
         j, exit_px, reason = resolve_exit(b, i0, i1, d, stop, target, deadline)
-        move = d * (exit_px - entry) - cost_in_price(pair, cost, entry)
+        exit_time = pd.Timestamp(b.times[j], tz="UTC")
+        swap = financing_in_price(pair, pd.Timestamp(t, tz="UTC"), exit_time, entry, financing_multiplier)
+        move = d * (exit_px - entry) - cost_in_price(pair, cost, entry) - swap
         pnl = move * units * quote_eur  # conversion au taux d'entrée
         equity += pnl
         n_today += 1
@@ -203,13 +207,14 @@ def run(
             "pair": pair,
             "direction": d,
             "entry_time": s.entry_time,
-            "exit_time": pd.Timestamp(b.times[j], tz="UTC").tz_convert(m1.index.tz),
+            "exit_time": exit_time.tz_convert(m1.index.tz),
             "entry": entry,
             "exit": exit_px,
             "stop": stop,
             "target": target,
             "stop_pips": dist / pip,
             "reason": reason,
+            "swap_r": swap / dist,
             "r": move / dist,
             "units": units,
             "risk_eur": dist * units * quote_eur,

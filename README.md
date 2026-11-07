@@ -1,7 +1,10 @@
-# algo-trading-python
+# algo-trading-intraday
 
-Recherche de stratégies forex intraday (EUR/USD, GBP/USD) sur plus de 10 ans de données
-M1 (HistData, Dukascopy), avec un moteur de backtest simple et vérifiable.
+Recherche de stratégies **intraday** (EUR/USD, GBP/USD, USD/CHF, BTC/USD) sur plus de 10 ans de données
+M1 (HistData, Binance, Dukascopy), avec un moteur de backtest simple et vérifiable.
+
+Les stratégies sur plusieurs jours sont dans le repo [algo-trading-swing](https://github.com/rbgt/algo-trading-swing),
+qui utilise ce repo comme bibliothèque (paquet `fxbt` : données, moteur, mesures, Monte-Carlo).
 
 ## Démarrage rapide
 
@@ -122,11 +125,14 @@ Avec plusieurs `--grid`, toutes les combinaisons sont testées. Le tableau final
 
 ### Instruments
 
-| Instrument | Source | Depuis | Coûts testés (aller-retour) | Levier max | Taille min |
-|---|---|---|---|---|---|
-| EUR/USD, GBP/USD | HistData | 2014 | 1,1 · 1,5 · 2 pips | 1:5 | 1 unité |
-| USD/CHF | HistData | 2014 | 1,5 · 2 · 2,5 pips | 1:5 | 1 unité |
-| BTC/USD | Binance (BTC/USDT) | août 2017 | 0,2 · 0,3 · 0,5 % du prix | 1:2 | 0,0001 BTC |
+| Instrument | Source | Depuis | Coûts testés (aller-retour) | Swap (nuit) | Levier max | Taille min |
+|---|---|---|---|---|---|---|
+| EUR/USD, GBP/USD | HistData | 2014 | 1,1 · 1,5 · 2 pips | 3 %/an, triple le mercredi | 1:5 | 1 unité |
+| USD/CHF | HistData | 2014 | 1,5 · 2 · 2,5 pips | 3 %/an, triple le mercredi | 1:5 | 1 unité |
+| BTC/USD | Binance (BTC/USDT) | août 2017 | 0,2 · 0,3 · 0,5 % du prix | 20 %/an, chaque nuit | 1:2 | 0,0001 BTC |
+
+Le swap n'est payé que si la position passe 17h à New York (23h à Zurich) : il est sans effet sur les stratégies intraday
+de ce repo. Variable d'environnement `FXBT_DATA_DIR` : dossier des données, si `fxbt` est utilisé depuis un autre repo.
 
 Les caractéristiques sont dans `data.INSTRUMENTS`. `--costs` s'exprime dans l'unité de l'instrument. Par défaut, les
 commandes testent EUR/USD et GBP/USD ; ajouter `--pairs USDCHF BTCUSD` pour les autres. Résultats des 7 stratégies sur

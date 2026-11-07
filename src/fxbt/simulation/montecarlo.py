@@ -17,12 +17,21 @@ import numpy as np
 import pandas as pd
 
 from .. import data
-from ..data import INSTRUMENTS, cost_in_price
+from ..data import INSTRUMENTS, cost_in_price, financing_in_price
 from ..strategies import STRATEGIES
 from . import metrics
 from .engine import Converter, account_for, resolve_exit, run, to_bars
 
 _WORKER: dict = {}
+
+
+def strategy_module(strategy: str):
+    """Module d'une stratégie : nom du registre fxbt, ou chemin de module (par exemple « swing.strategies.donchian »)."""
+    if strategy in STRATEGIES:
+        return STRATEGIES[strategy]
+    import importlib
+
+    return importlib.import_module(strategy)
 
 
 def _cost(pair: str, cost: float | None) -> float:
@@ -58,7 +67,7 @@ def _init_worker(pairs, load_start, end, start, source, cost):
 
 def _evaluate(job: tuple[str, dict]) -> dict:
     strategy, values = job
-    module = STRATEGIES[strategy]
+    module = strategy_module(strategy)
     params = module.Params(**values)
     w = _WORKER
     row = dict(values)
@@ -75,7 +84,7 @@ def _evaluate(job: tuple[str, dict]) -> dict:
 
 
 def param_montecarlo(strategy: str, samples: int, seed: int, pairs, load_start, end, start, source, cost, workers) -> pd.DataFrame:
-    space = STRATEGIES[strategy].PARAM_SPACE
+    space = strategy_module(strategy).PARAM_SPACE
     jobs = [(strategy, v) for v in sample_params(space, samples, seed)]
     with ProcessPoolExecutor(workers, initializer=_init_worker,
                              initargs=(pairs, load_start, end, start, source, cost)) as ex:
@@ -104,14 +113,15 @@ def _trade_r(b, pair: str, entry_time, deadline, d: int, dist: float, rr: float,
     i1 = int(np.searchsorted(b.times, dl))
     entry = float(b.open[i0])
     stop, target = entry - d * dist, entry + d * rr * dist
-    _, exit_px, _ = resolve_exit(b, i0, i1, d, stop, target, dl)
-    return (d * (exit_px - entry) - cost_in_price(pair, cost, entry)) / dist
+    j, exit_px, _ = resolve_exit(b, i0, i1, d, stop, target, dl)
+    swap = financing_in_price(pair, entry_time, pd.Timestamp(b.times[j], tz="UTC"), entry)
+    return (d * (exit_px - entry) - cost_in_price(pair, cost, entry) - swap) / dist
 
 
 def direction_null(strategy: str, params, m1s: dict, converter: Converter, start: pd.Timestamp,
                    pairs: list[str], cost: float, flips: int, seed: int) -> pd.DataFrame:
     """Compare le R moyen réel au R moyen des mêmes trades avec un sens tiré au hasard."""
-    module = STRATEGIES[strategy]
+    module = strategy_module(strategy)
     rng = np.random.default_rng(seed)
     rows = []
     for pair in pairs:
@@ -124,7 +134,8 @@ def direction_null(strategy: str, params, m1s: dict, converter: Converter, start
         b = to_bars(m1)
         dist = (trades["entry"] - trades["stop"]).abs().to_numpy()
         rr = ((trades["target"] - trades["entry"]).abs().to_numpy()) / dist
-        deadline = trades["entry_time"].dt.normalize() + pd.Timedelta(hours=params.flat_hour)
+        # Échéance de chaque trade : celle de son signal (le jour même en intraday, plusieurs jours en swing).
+        deadline = trades["entry_time"].map(signals.drop_duplicates("entry_time").set_index("entry_time")["deadline"])
         # Chaque trade simulé indépendamment, dans les deux sens, au même coût.
         r_long = np.array([_trade_r(b, pair, t, dl, 1, s, k, pair_cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
         r_short = np.array([_trade_r(b, pair, t, dl, -1, s, k, pair_cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])

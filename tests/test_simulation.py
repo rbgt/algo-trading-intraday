@@ -160,3 +160,21 @@ def test_btc_cost_in_percent_and_fractional_size():
     # 1 € de risque / 100 $ de stop = 0,01 BTC ; plafond de levier 100 × 2 × 0,98 / 10 000 = 0,0196 BTC.
     assert t.units == pytest.approx(0.01)
     assert t.r == pytest.approx(-20.0 / 100.0)  # sortie à plat à 17h, coût de 0,2 % de 10 000 $ = 20 $
+
+
+def test_rollovers_and_financing():
+    from fxbt.data import financing_in_price, rollovers
+
+    ny = "America/New_York"
+    mon = pd.Timestamp("2020-03-09 10:00", tz=ny)
+    # Intraday (avant 17h à New York) : pas de swap.
+    assert rollovers("EURUSD", mon, mon + pd.Timedelta(hours=5)) == 0
+    # Du lundi au lundi suivant : lun, mar, mer (×3), jeu, ven = 7 swaps pour le forex ; 7 nuits pour le BTC.
+    assert rollovers("EURUSD", mon, mon + pd.Timedelta(days=7)) == 7
+    assert rollovers("BTCUSD", mon, mon + pd.Timedelta(days=7)) == 7
+    # Du vendredi au lundi : 1 swap forex (vendredi), 3 nuits BTC.
+    fri = pd.Timestamp("2020-03-13 10:00", tz=ny)
+    assert rollovers("EURUSD", fri, fri + pd.Timedelta(days=3)) == 1
+    assert rollovers("BTCUSD", fri, fri + pd.Timedelta(days=3)) == 3
+    # 3 %/an sur 365 swaps = 3 % du prix.
+    assert financing_in_price("EURUSD", mon, mon + pd.Timedelta(days=7), 1.0) == pytest.approx(0.03 * 7 / 365)
