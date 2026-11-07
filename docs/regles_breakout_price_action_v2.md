@@ -74,3 +74,28 @@ de trouver un résultat positif par hasard. Un éventuel succès sur 2015–2021
 | Délai du pullback (bougies M15) | 24 | 12 · 48 |
 | Filtre H1 | actif | désactivé |
 | Obliques | actives | désactivées (horizontales seules, en H1 / M15 / M5) |
+
+## 6. Résultat (2015–2021, HistData) : **rejetée**
+
+Test lancé après le commit des règles ci-dessus, sans modification.
+
+| Paire | Trades | Réussite | R moyen net (1,1 pip) | Profit factor | Années positives | Stop médian | Objectif médian |
+|---|---|---|---|---|---|---|---|
+| EUR/USD | 94 | 34 % | −0,19 | 0,76 | 2 / 7 | 5,4 pips | 1,9 R |
+| GBP/USD | 95 | 40 % | +0,045 | 1,07 | 4 / 7 | 7,2 pips | 2,1 R |
+
+Critères non remplis : EUR/USD est négatif, GBP/USD reste sous +0,05 R et devient négatif à 1,5 pip, et il y a moins de
+150 trades par paire. **Les 13 variantes sont toutes négatives sur EUR/USD** (de −0,08 à −0,41 R). GBP/USD oscille
+entre −0,08 et +0,10 R selon les réglages : c'est le profil d'un résultat dû au hasard sur environ 100 trades, pas d'un avantage.
+
+Ce qu'on apprend :
+- **Les obliques à 3 touches sont bien détectées** : environ 28 % des zones sur les deux paires. Mais elles n'apportent
+  rien : sans elles, le résultat est un peu **meilleur** (−0,10 R sur EUR/USD, +0,10 R sur GBP/USD), avec le même nombre
+  de trades.
+- **Passer en H1 / M15 / M5** multiplie les cassures (environ 11 000 zones au lieu de 2 400), mais le nombre de trades
+  reste d'environ 95 par paire. Le goulot d'étranglement est la combinaison « pullback entre 8h et 12h, pin bar, tendance alignée ».
+- **Le stop reste trop serré** (5 à 7 pips) : le coût pèse environ 0,15 à 0,2 R par trade, comme dans la version 1.
+- Le résultat de GBP/USD sur cette version (+0,045 R) ne doit **pas** être utilisé pour choisir une version 3 :
+  ce serait ajuster la méthode aux données.
+
+La période 2022–2026 n'a pas été utilisée.

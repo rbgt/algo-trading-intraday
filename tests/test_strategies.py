@@ -120,3 +120,22 @@ def test_breakout_signals_invariants():
             assert np.isclose(s.stop_level, pin["low"] - 0.0002) and s.target_level >= pin["high"]
         else:
             assert np.isclose(s.stop_level, pin["high"] + 0.0002) and s.target_level <= pin["low"]
+
+
+def test_trendline_with_three_touches_creates_sloped_zone():
+    from fxbt.strategies import breakout_price_action as bpa
+
+    rows = [(1.1000, 1.1010, 1.0990, 1.1000)] * 45
+    for i, peak in ((22, 1.1060), (28, 1.1050), (34, 1.1040)):  # 3 sommets alignés, pente −10 pips / 6 bougies
+        rows[i] = (1.1000, peak, 1.0995, 1.1005)
+    rows[40] = (1.1000, 1.1036, 1.0999, 1.1035)  # cassure de l'oblique (≈ 1.1030 ici), sous l'horizontale 1.1040
+    p = bpa.Params(swing_n=2, atr_len=5, use_trendlines=True)
+
+    zones = bpa.find_zones(h1_frame(rows), p, tf="1h")
+    up = [z for z in zones if z["direction"] == 1 and z["bar"] == 40]
+    assert len(up) == 1
+    assert np.isclose(up[0]["slope"], -0.0010 / 6) and np.isclose(up[0]["level"], 1.1030)
+
+    # Sans les obliques, la même bougie ne casse que les petits niveaux à 1.1010.
+    zones = bpa.find_zones(h1_frame(rows), bpa.Params(swing_n=2, atr_len=5), tf="1h")
+    assert all(z["level"] < 1.102 for z in zones if z["bar"] == 40)

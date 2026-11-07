@@ -1,11 +1,15 @@
-"""Stratégie D : Breakout Price Action H4 / H1 / M5 (règles : docs/regles_breakout_price_action.md).
+"""Stratégie D : Breakout Price Action (règles : docs/regles_breakout_price_action.md).
 
-- Tendance H4 : les 2 derniers sommets et les 2 derniers creux confirmés montent (haussière)
-  ou descendent (baissière). Achats seulement en tendance haussière, ventes seulement en baissière.
-- Niveaux H1 : sommets et creux confirmés de moins de 150 bougies H1. Le premier passage d'une
-  clôture au-delà du niveau est soit une cassure (bougie de force), soit la mort du niveau.
-- Zone de chasse : niveau cassé ± 0,2 × ATR14 H1, annulée par une clôture H1 de l'autre côté de
-  la zone ou après 24 bougies H1. Une zone ne sert qu'une fois.
+Version 1 (réglages par défaut) : tendance H4, niveaux H1, déclencheur M5, lignes horizontales.
+La version 2 (module breakout_pa_v2) réutilise ce code en H1 / M15 / M5, avec les obliques à 3 touches.
+
+- Tendance : les 2 derniers sommets et les 2 derniers creux confirmés montent (haussière) ou
+  descendent (baissière). Achats seulement en tendance haussière, ventes seulement en baissière.
+- Lignes : sommets et creux confirmés (horizontales), et en option obliques passant par au moins
+  3 sommets ou creux. Le premier passage d'une clôture au-delà de la ligne est soit une cassure
+  (bougie de force), soit la mort de la ligne.
+- Zone de chasse : ligne (prolongée si oblique) ± zone_atr × ATR, annulée par une clôture de l'autre
+  côté de la zone ou après pullback_bars bougies. Une zone ne sert qu'une fois.
 - Signal : pin bar M5 dans la zone, sur une bougie ouverte entre 8h00 et 11h55.
   Entrée à l'ouverture suivante, stop 2 pips au-delà de la mèche, objectif sur l'extrême
   atteint depuis la cassure (ignoré si à moins de 1R). Sortie forcée à 17h.
@@ -25,13 +29,17 @@ from ..indicators import atr, swing_points
 
 @dataclass(frozen=True)
 class Params(BaseParams):
+    trend_tf: str = "4h"
+    level_tf: str = "1h"
     swing_n: int = 3
-    level_max_age: int = 150  # bougies H1
+    level_max_age: int = 150  # bougies de l'unité de temps des niveaux
+    use_trendlines: bool = False
+    touch_atr: float = 0.1  # tolérance d'une touche sur une oblique
     force_body_atr: float = 0.7
     force_close_frac: float = 0.25  # clôture dans le quart extrême de la bougie
     zone_atr: float = 0.2
-    pullback_bars: int = 24  # bougies H1
-    use_h4_filter: bool = True
+    pullback_bars: int = 24  # bougies de l'unité de temps des niveaux
+    use_trend_filter: bool = True
     pin_wick_body: float = 2.0
     pin_wick_range: float = 0.6
     stop_buffer_pips: float = 2.0
@@ -53,13 +61,17 @@ def h4_bars(m1: pd.DataFrame) -> pd.DataFrame:
     return h4
 
 
-def h4_trend(h4: pd.DataFrame, n: int) -> pd.DataFrame:
-    """Tendance H4 (+1, −1 ou 0), datée de la clôture qui confirme le dernier sommet ou creux."""
-    is_high, is_low = swing_points(h4, n)
-    confirm = pd.Series(h4.index, index=h4.index).shift(-n) + pd.Timedelta(hours=4)
+def trend_bars(m1: pd.DataFrame, tf: str) -> pd.DataFrame:
+    return h4_bars(m1) if pd.Timedelta(tf) == pd.Timedelta("4h") else resample(m1, tf)
+
+
+def swing_trend(bars: pd.DataFrame, n: int, tf: str) -> pd.DataFrame:
+    """Tendance (+1, −1 ou 0), datée de la clôture qui confirme le dernier sommet ou creux."""
+    is_high, is_low = swing_points(bars, n)
+    confirm = pd.Series(bars.index, index=bars.index).shift(-n) + pd.Timedelta(tf)
     events = pd.concat([
-        pd.DataFrame({"time": confirm[is_high].to_numpy(), "kind": "high", "value": h4["high"][is_high].to_numpy()}),
-        pd.DataFrame({"time": confirm[is_low].to_numpy(), "kind": "low", "value": h4["low"][is_low].to_numpy()}),
+        pd.DataFrame({"time": confirm[is_high].to_numpy(), "kind": "high", "value": bars["high"][is_high].to_numpy()}),
+        pd.DataFrame({"time": confirm[is_low].to_numpy(), "kind": "low", "value": bars["low"][is_low].to_numpy()}),
     ], ignore_index=True).dropna(subset=["time"]).sort_values("time", kind="stable")
 
     highs, lows, rows = [], [], []
@@ -75,26 +87,69 @@ def h4_trend(h4: pd.DataFrame, n: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["time", "trend"]).drop_duplicates("time", keep="last")
 
 
-def find_zones(h1: pd.DataFrame, p: Params) -> list[dict]:
-    """Parcourt les bougies H1 et renvoie les zones de chasse créées par les cassures."""
+def _new_trendlines(swings: list[tuple[int, float]], i: int, price: float, tol: float,
+                    closes: np.ndarray, side: int) -> list[dict]:
+    """Obliques qui se terminent au nouveau sommet (side=1) ou creux (side=-1) i.
+
+    Chaque oblique part d'un sommet A antérieur et passe à moins de tol d'au moins un sommet
+    intermédiaire, soit 3 touches. Aucune clôture ne doit l'avoir franchie entre A et i.
+    """
+    if len(swings) < 2:
+        return []
+    idx = np.array([s[0] for s in swings], dtype=float)
+    px = np.array([s[1] for s in swings])
+    slopes = (price - px) / (i - idx)                        # une droite par point de départ A
+    line_at = px[:, None] + slopes[:, None] * (idx[None, :] - idx[:, None])
+    between = (idx[None, :] > idx[:, None])                   # sommets B strictement entre A et i
+    touches = (np.abs(px[None, :] - line_at) <= tol) & between
+    lines = []
+    for a in np.flatnonzero(touches.any(axis=1)):
+        a_idx = int(idx[a])
+        seg = np.arange(a_idx, i + 1)
+        values = px[a] + slopes[a] * (seg - a_idx)
+        crossed = (closes[seg] > values) if side == 1 else (closes[seg] < values)
+        if not crossed.any():
+            lines.append({"a": a_idx, "p": float(px[a]), "slope": float(slopes[a]), "last": i})
+    return lines
+
+
+def find_zones(bars: pd.DataFrame, p: Params, tf: str | None = None) -> list[dict]:
+    """Parcourt les bougies des niveaux et renvoie les zones de chasse créées par les cassures."""
+    tf_delta = pd.Timedelta(tf or p.level_tf)
     n = p.swing_n
-    is_high, is_low = (s.to_numpy() for s in swing_points(h1, n))
-    o, h, l, c = (h1[k].to_numpy() for k in ("open", "high", "low", "close"))
-    a = atr(h1, p.atr_len).to_numpy()
-    times = h1.index
-    resistances: list[tuple[float, int]] = []
-    supports: list[tuple[float, int]] = []
+    is_high, is_low = (s.to_numpy() for s in swing_points(bars, n))
+    o, h, l, c = (bars[k].to_numpy() for k in ("open", "high", "low", "close"))
+    a = atr(bars, p.atr_len).to_numpy()
+    times = bars.index
+    # Une ligne : valeur p à la bougie a, pente slope par bougie ; last = dernière touche.
+    resistances: list[dict] = []
+    supports: list[dict] = []
+    swing_highs: list[tuple[int, float]] = []
+    swing_lows: list[tuple[int, float]] = []
     zones = []
 
-    for b in range(len(h1)):
+    def value(line, b):
+        return line["p"] + line["slope"] * (b - line["a"])
+
+    for b in range(len(bars)):
         # Sommets et creux confirmés à la clôture de la bougie précédente.
         i = b - 1 - n
         if i >= 0 and is_high[i]:
-            resistances.append((h[i], i))
+            if p.use_trendlines and not np.isnan(a[i]):
+                recent = [s for s in swing_highs if i - s[0] <= p.level_max_age]
+                resistances += _new_trendlines(recent, i, h[i], p.touch_atr * a[i], c, side=1)
+            resistances.append({"a": i, "p": h[i], "slope": 0.0, "last": i})
+            swing_highs.append((i, h[i]))
         if i >= 0 and is_low[i]:
-            supports.append((l[i], i))
-        resistances = [(lv, j) for lv, j in resistances if b - j <= p.level_max_age]
-        supports = [(lv, j) for lv, j in supports if b - j <= p.level_max_age]
+            if p.use_trendlines and not np.isnan(a[i]):
+                recent = [s for s in swing_lows if i - s[0] <= p.level_max_age]
+                supports += _new_trendlines(recent, i, l[i], p.touch_atr * a[i], c, side=-1)
+            supports.append({"a": i, "p": l[i], "slope": 0.0, "last": i})
+            swing_lows.append((i, l[i]))
+        resistances = [r for r in resistances if b - r["last"] <= p.level_max_age]
+        supports = [s for s in supports if b - s["last"] <= p.level_max_age]
+        swing_highs = [s for s in swing_highs if b - s[0] <= p.level_max_age]
+        swing_lows = [s for s in swing_lows if b - s[0] <= p.level_max_age]
         if np.isnan(a[b]):
             continue
 
@@ -103,38 +158,42 @@ def find_zones(h1: pd.DataFrame, p: Params) -> list[dict]:
         force_up = c[b] > o[b] and body >= p.force_body_atr * a[b] and rng > 0 and (h[b] - c[b]) <= p.force_close_frac * rng
         force_dn = c[b] < o[b] and body >= p.force_body_atr * a[b] and rng > 0 and (c[b] - l[b]) <= p.force_close_frac * rng
 
-        # Premier passage d'une clôture au-delà du niveau : cassure si bougie de force, sinon niveau mort.
-        crossed = [lv for lv, _ in resistances if c[b] > lv]
-        resistances = [(lv, j) for lv, j in resistances if c[b] <= lv]
+        # Premier passage d'une clôture au-delà de la ligne : cassure si bougie de force, sinon ligne morte.
+        crossed = [r for r in resistances if c[b] > value(r, b)]
+        resistances = [r for r in resistances if c[b] <= value(r, b)]
         if crossed and force_up:
-            zones.append({"direction": 1, "level": max(crossed), "bar": b})
-        crossed = [lv for lv, _ in supports if c[b] < lv]
-        supports = [(lv, j) for lv, j in supports if c[b] >= lv]
+            zones.append({"direction": 1, "line": max(crossed, key=lambda r: value(r, b)), "bar": b})
+        crossed = [s for s in supports if c[b] < value(s, b)]
+        supports = [s for s in supports if c[b] >= value(s, b)]
         if crossed and force_dn:
-            zones.append({"direction": -1, "level": min(crossed), "bar": b})
+            zones.append({"direction": -1, "line": min(crossed, key=lambda s: value(s, b)), "bar": b})
 
-    one_hour = pd.Timedelta(hours=1)
     for z in zones:
-        b, d = z["bar"], z["direction"]
-        w = p.zone_atr * a[b]
-        z["low"], z["high"] = z["level"] - w, z["level"] + w
+        b, d, line = z["bar"], z["direction"], z["line"]
+        z["level"] = value(line, b)
+        z["anchor"], z["anchor_price"], z["slope"] = line["a"], line["p"], line["slope"]
+        z["width"] = p.zone_atr * a[b]
+        z["low"], z["high"] = z["level"] - z["width"], z["level"] + z["width"]
         z["breakout_open"] = times[b]
-        z["start"] = times[b] + one_hour
-        last = min(b + p.pullback_bars, len(h1) - 1)
-        end = times[last] + one_hour
-        # Fausse cassure : clôture H1 de l'autre côté de la zone.
-        after = c[b + 1:last + 1]
-        failed = np.flatnonzero(after < z["low"]) if d == 1 else np.flatnonzero(after > z["high"])
+        z["start"] = times[b] + tf_delta
+        last = min(b + p.pullback_bars, len(bars) - 1)
+        end = times[last] + tf_delta
+        # Fausse cassure : clôture de l'autre côté de la zone (prolongée si oblique).
+        seg = np.arange(b + 1, last + 1)
+        center = line["p"] + line["slope"] * (seg - line["a"])
+        failed = np.flatnonzero(c[seg] < center - z["width"]) if d == 1 else np.flatnonzero(c[seg] > center + z["width"])
         if failed.size:
-            end = times[b + 1 + failed[0]] + one_hour
+            end = times[seg[failed[0]]] + tf_delta
         z["end"] = end
+        del z["line"]
     return zones
 
 
 def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
-    h1 = resample(m1, "1h")
+    levels = resample(m1, p.level_tf)
     m5 = resample(m1, "5min")
-    zones = find_zones(h1, p)
+    zones = find_zones(levels, p)
+    tf_delta = pd.Timedelta(p.level_tf)
 
     o, h, l, c = (m5[k].to_numpy() for k in ("open", "high", "low", "close"))
     rng = h - l
@@ -147,12 +206,17 @@ def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
     tod = m5.index.hour * 60 + m5.index.minute
     in_window = (tod >= p.entry_start_hour * 60) & (tod < p.entry_end_hour * 60)
 
-    if p.use_h4_filter:
-        trend_tbl = h4_trend(h4_bars(m1), p.swing_n)
+    if p.use_trend_filter:
+        trend_tbl = swing_trend(trend_bars(m1, p.trend_tf), p.swing_n, p.trend_tf)
         close_times = pd.DataFrame({"time": m5.index + pd.Timedelta(minutes=5)})
         trend = pd.merge_asof(close_times, trend_tbl, on="time", direction="backward")["trend"].fillna(0).to_numpy()
     else:
         trend = None
+
+    # Position de chaque bougie M5 en « numéro de bougie » des niveaux, pour prolonger les obliques.
+    lvl_times = levels.index
+    k_lvl = lvl_times.searchsorted(m5.index, side="right") - 1
+    pos = np.asarray(k_lvl + (m5.index - lvl_times[np.maximum(k_lvl, 0)]) / tf_delta, dtype=float)
 
     times = m5.index
     day = times.normalize()
@@ -164,10 +228,12 @@ def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
         if i1 <= i0:
             continue
         sl = slice(i0, i1)
+        center = z["anchor_price"] + z["slope"] * (pos[sl] - z["anchor"])
+        lo_z, hi_z = center - z["width"], center + z["width"]
         if d == 1:
-            ok = pin_up[sl] & (l[sl] <= z["high"]) & (c[sl] > z["low"])
+            ok = pin_up[sl] & (l[sl] <= hi_z) & (c[sl] > lo_z)
         else:
-            ok = pin_dn[sl] & (h[sl] >= z["low"]) & (c[sl] < z["high"])
+            ok = pin_dn[sl] & (h[sl] >= lo_z) & (c[sl] < hi_z)
         ok &= in_window[sl]
         if trend is not None:
             ok &= trend[sl] == d

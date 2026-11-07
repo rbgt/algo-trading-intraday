@@ -32,6 +32,7 @@ Toutes les commandes s'utilisent sous la forme `.venv/bin/python -m fxbt <comman
 | `london_breakout` | Cassure de la zone asiatique | `src/fxbt/strategies/london_breakout.py` | Rejetée |
 | `contre_tendance` | Retour à la moyenne journalière | `docs/regles_contre_tendance.md` | Rejetée |
 | `breakout_price_action` | Cassure H1, pullback, pin bar M5 (filtre H4) | `docs/regles_breakout_price_action.md` | Rejetée |
+| `breakout_pa_v2` | Version H1 / M15 / M5, avec obliques et triangles à 3 touches | `docs/regles_breakout_price_action_v2.md` | Rejetée |
 
 ### La commande `backtest`
 
