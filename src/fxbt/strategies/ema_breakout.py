@@ -86,3 +86,14 @@ def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
         "deadline": deadline[mask],
         "day": day[mask],
     })[SIGNAL_COLUMNS]
+
+
+# Plages de tirage pour le Monte-Carlo sur les paramètres (fixées avant le premier tirage).
+PARAM_SPACE = {
+    "trend_tf": ("choice", ["15min", "30min", "1h"]),
+    "ema_fast": ("int", 10, 30),
+    "ema_slow": ("int", 40, 100),
+    "atr_mult": ("float", 1.0, 3.0),
+    "rr": ("float", 1.0, 3.0),
+    "entry_end_hour": ("int", 10, 12),
+}

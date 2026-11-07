@@ -112,3 +112,13 @@ def test_target_level_and_min_target_r():
     assert t.reason == "target" and t.r == pytest.approx(3.0)
     # Objectif à 0,5 R : ignoré.
     assert backtest(signal(stop_dist=0.0010).assign(target_level=1.1005), m1, params=params).empty
+
+
+def test_montecarlo_sampling_respects_space():
+    from fxbt.montecarlo import sample_params
+
+    space = {"a": ("int", 2, 5), "b": ("float", 0.1, 0.4), "c": ("choice", [True, False])}
+    samples = sample_params(space, 200, seed=1)
+    assert all(2 <= s["a"] <= 5 and 0.1 <= s["b"] <= 0.4 and s["c"] in (True, False) for s in samples)
+    assert {s["a"] for s in samples} == {2, 3, 4, 5}
+    assert sample_params(space, 5, seed=1) == samples[:5]  # reproductible

@@ -17,3 +17,7 @@ class Params(v1.Params):
     trend_tf: str = "1h"
     level_tf: str = "15min"
     use_trendlines: bool = True
+
+
+# Plages de tirage pour le Monte-Carlo sur les paramètres (fixées avant le premier tirage).
+PARAM_SPACE = {**v1.PARAM_SPACE, "touch_atr": ("float", 0.05, 0.25), "use_trendlines": ("choice", [True, False])}

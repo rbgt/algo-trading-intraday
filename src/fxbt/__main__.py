@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import data, metrics
+from . import data, metrics, montecarlo
 from .engine import Account, Converter, run
 from .strategies import STRATEGIES
 
@@ -156,6 +156,28 @@ def cmd_sweep(args):
     table.to_csv(RESULTS_DIR / f"sweep_{args.strategy}.csv", index=False)
 
 
+def cmd_montecarlo(args):
+    """Monte-Carlo sur les paramètres et test contre le hasard, période de conception uniquement."""
+    start, end = PERIODS["is"]
+    load_start = (pd.Timestamp(start) - pd.Timedelta(days=WARMUP_DAYS)).date().isoformat()
+    tz_start = pd.Timestamp(start, tz=data.TZ)
+    m1s, converter = montecarlo.load(args.pairs, load_start, end, args.source)
+    RESULTS_DIR.mkdir(exist_ok=True)
+    strategies = sorted(STRATEGIES) if args.strategy == "toutes" else [args.strategy]
+    for name in strategies:
+        print(f"\n========== {name} ==========")
+        table = montecarlo.param_montecarlo(name, args.samples, args.seed, args.pairs, load_start, end, start,
+                                            args.source, args.cost, args.workers)
+        table.to_csv(RESULTS_DIR / f"montecarlo_{name}.csv", index=False)
+        print(f"Monte-Carlo sur les paramètres ({args.samples} tirages, coût {args.cost} pip) :")
+        for k, v in montecarlo.summarize_montecarlo(table, args.pairs).items():
+            print(f"  {k} : {v}")
+        null = montecarlo.direction_null(name, STRATEGIES[name].Params(), m1s, converter, tz_start,
+                                         args.pairs, args.cost, args.flips, args.seed)
+        print(f"Test contre le hasard (réglages de base, {args.flips} tirages du sens) :")
+        print(null.to_string(index=False))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fxbt")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -206,6 +228,17 @@ def main(argv=None):
     w.add_argument("--lot-step", type=int, default=1)
     w.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
     w.set_defaults(func=cmd_sweep)
+
+    mc = sub.add_parser("montecarlo", help="Monte-Carlo sur les paramètres et test contre le hasard (2015–2021)")
+    mc.add_argument("--strategy", choices=sorted(STRATEGIES) + ["toutes"], default="toutes")
+    mc.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
+    mc.add_argument("--samples", type=int, default=300, help="nombre de jeux de réglages tirés")
+    mc.add_argument("--flips", type=int, default=10_000, help="tirages du sens pour le test contre le hasard")
+    mc.add_argument("--seed", type=int, default=0)
+    mc.add_argument("--cost", type=float, default=1.1)
+    mc.add_argument("--workers", type=int, default=montecarlo.default_workers())
+    mc.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
+    mc.set_defaults(func=cmd_montecarlo)
 
     args = ap.parse_args(argv)
     args.func(args)

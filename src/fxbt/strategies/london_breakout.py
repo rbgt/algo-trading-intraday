@@ -90,3 +90,14 @@ def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
         "deadline": (day + pd.Timedelta(hours=p.flat_hour))[mask],
         "day": day[mask],
     })[SIGNAL_COLUMNS]
+
+
+# Plages de tirage pour le Monte-Carlo sur les paramètres (fixées avant le premier tirage).
+PARAM_SPACE = {
+    "asia_end_hour": ("int", 6, 7),
+    "entry_end_hour": ("int", 9, 12),
+    "min_ratio": ("float", 0.05, 0.30),
+    "max_ratio": ("float", 0.40, 1.00),
+    "rr": ("float", 1.0, 3.0),
+    "use_trend": ("choice", [False, True]),
+}

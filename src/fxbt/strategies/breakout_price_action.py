@@ -262,3 +262,15 @@ def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=SIGNAL_COLUMNS + ["target_level"])
     return pd.DataFrame(rows).sort_values("entry_time").reset_index(drop=True)
+
+
+# Plages de tirage pour le Monte-Carlo sur les paramètres (fixées avant le premier tirage).
+PARAM_SPACE = {
+    "swing_n": ("int", 2, 5),
+    "force_body_atr": ("float", 0.4, 1.2),
+    "zone_atr": ("float", 0.1, 0.4),
+    "pullback_bars": ("int", 12, 48),
+    "use_trend_filter": ("choice", [True, False]),
+    "stop_buffer_pips": ("float", 1.0, 5.0),
+    "min_target_r": ("float", 0.5, 2.0),
+}
