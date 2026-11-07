@@ -40,15 +40,17 @@ def _point(pair: str) -> float:
 class _Client:
     """Connexion HTTPS persistante, une requête à la fois.
 
-    Dukascopy répond 503 dès qu'on va trop vite : on attend de plus en plus longtemps.
+    Dukascopy répond 503 dès qu'on va trop vite, puis 429 (bannissement temporaire)
+    si on insiste : on attend de plus en plus longtemps, et 15 minutes sur un 429.
     """
 
-    def __init__(self, pause: float = 0.2):
+    def __init__(self, pause: float = 0.5):
         self.pause = pause
         self.conn: http.client.HTTPSConnection | None = None
 
     def get(self, path: str) -> bytes | None:
         for attempt in range(12):
+            wait = min(300, 10 * 2 ** attempt)
             try:
                 if self.conn is None:
                     self.conn = http.client.HTTPSConnection(HOST, timeout=30)
@@ -60,11 +62,12 @@ class _Client:
                     return body
                 if resp.status == 404:
                     return None
+                if resp.status == 429:
+                    wait = 900
                 err = f"HTTP {resp.status}"
             except (OSError, http.client.HTTPException) as e:
                 err = repr(e)
                 self.conn = None
-            wait = min(300, 10 * 2 ** attempt)
             print(f"  {path} : {err}, nouvelle tentative dans {wait} s", flush=True)
             time.sleep(wait)
         raise RuntimeError(f"Échec du téléchargement de {path}")
