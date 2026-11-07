@@ -114,6 +114,22 @@ Il sert à vérifier qu'un résultat ne dépend pas d'un réglage précis.
 Avec plusieurs `--grid`, toutes les combinaisons sont testées. Le tableau final est aussi enregistré dans
 `results/sweep_<stratégie>.csv`.
 
+### Paramétrage ou stratégie : `montecarlo`
+
+```bash
+.venv/bin/python -m fxbt montecarlo                                  # les 5 stratégies, environ 5 minutes
+.venv/bin/python -m fxbt montecarlo --strategy contre_tendance --samples 500
+```
+
+Deux tests, uniquement sur 2015–2021 :
+1. **Monte-Carlo sur les paramètres** : des jeux de réglages tirés au hasard dans les plages `PARAM_SPACE` de la
+   stratégie. Si une bonne part gagne sur les deux paires, c'est le réglage qui pèche ; si presque tous perdent,
+   c'est la stratégie. Il faut lire la distribution, pas le meilleur tirage, qui est flatteur par chance.
+2. **Test contre le hasard** : les mêmes trades avec un sens tiré à pile ou face. La colonne
+   `part_du_hasard_qui_fait_mieux_%` doit être sous 5 % pour que le signal prévoie vraiment le sens du marché.
+
+Résultats et conclusion pour les 5 stratégies : `docs/montecarlo.md`.
+
 ### La validation finale (2022 → aujourd'hui)
 
 ```bash
