@@ -6,15 +6,18 @@ Deux sources, stockées en parquet mensuel (UTC) dans data/raw/ :
   LZMA. Chaque enregistrement fait 24 octets, en big-endian : secondes depuis minuit,
   ouverture, clôture, plus bas, plus haut (entiers en points) et volume (float).
 - HistData.com (téléchargée à la main, importée par `import-histdata`) : CSV « Generic
-  ASCII » `AAAAMMJJ HHMMSS;open;high;low;close;volume`, en heure de New York sans heure
-  d'été (UTC−5 toute l'année).
+  ASCII » `AAAAMMJJ HHMMSS;open;high;low;close;volume`, en heure de New York (avec heure
+  d'été, contrairement à ce qu'annonce le site).
 """
 
 from __future__ import annotations
 
 import http.client
 import lzma
+import re
 import time
+import urllib.parse
+import urllib.request
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -152,13 +155,78 @@ def _save_monthly(df: pd.DataFrame, pair: str, tag: str) -> list[Path]:
     return paths
 
 
+# Jusqu'en 2018, HistData est en heure de New York. Ensuite, c'est UTC−5 avec l'heure d'été
+# européenne : pendant les semaines où les États-Unis et l'Europe ne sont pas à la même heure,
+# le marché « rouvre » à 16h au lieu de 17h. Vérifié contre Dukascopy (`compare`) et sur
+# l'heure de réouverture du dimanche.
+_HIST_EU_DST_FROM = pd.Timestamp("2019-01-01")
+
+
+def _histdata_to_utc(local: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    ny = local.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT").tz_convert("UTC")
+    fixed = local.tz_localize("Etc/GMT+5").tz_convert("UTC")  # UTC−5 (« Etc/GMT+5 » a le signe inversé)
+    # Heure d'été européenne : Londres est alors à UTC+1.
+    eu_dst = fixed.tz_convert("Europe/London").tz_localize(None) - fixed.tz_localize(None)
+    eu = fixed - eu_dst
+    return ny.where(local < _HIST_EU_DST_FROM, eu)
+
+
 def _read_histdata_csv(fh) -> pd.DataFrame:
     df = pd.read_csv(fh, sep=";", header=None, names=["time", "open", "high", "low", "close", "volume"])
-    idx = pd.to_datetime(df.pop("time"), format="%Y%m%d %H%M%S")
-    # Heure de New York sans heure d'été = UTC−5 fixe (« Etc/GMT+5 » a le signe inversé).
-    df.index = pd.DatetimeIndex(idx).tz_localize("Etc/GMT+5").tz_convert("UTC")
+    local = pd.DatetimeIndex(pd.to_datetime(df.pop("time"), format="%Y%m%d %H%M%S"))
+    df.index = _histdata_to_utc(local)
+    # Les heures ambiguës ou inexistantes tombent le dimanche vers 2h du matin, marché fermé.
+    df = df[df.index.notna()]
     df.index.name = "time"
     return df.astype("float64")
+
+
+_HIST_PAGE = "https://www.histdata.com/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/{pair}/{period}"
+
+
+def _histdata_zip(pair: str, year: int, month: int | None) -> bytes | None:
+    """Récupère un zip HistData : la page contient un jeton à renvoyer au formulaire de téléchargement."""
+    period = f"{year}/{month}" if month else f"{year}"
+    page_url = _HIST_PAGE.format(pair=pair.lower(), period=period)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    with urllib.request.urlopen(urllib.request.Request(page_url, headers=headers), timeout=60) as resp:
+        html = resp.read().decode("utf-8", "replace")
+    tk = re.search(r'id="tk" value="([0-9a-f]+)"', html)
+    if not tk:
+        return None
+    form = urllib.parse.urlencode({
+        "tk": tk.group(1),
+        "date": str(year),
+        "datemonth": f"{year}{month:02d}" if month else str(year),
+        "platform": "ASCII",
+        "timeframe": "M1",
+        "fxpair": pair.upper(),
+    }).encode()
+    req = urllib.request.Request("https://www.histdata.com/get.php", data=form, headers={**headers, "Referer": page_url})
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        body = resp.read()
+    return body if body[:2] == b"PK" else None
+
+
+def download_histdata(pair: str, start_year: int, pause: float = 3.0) -> list[Path]:
+    """Télécharge les années complètes, puis les mois terminés de l'année en cours."""
+    today = datetime.now(timezone.utc).date()
+    periods = [(y, None) for y in range(start_year, today.year)] + [(today.year, m) for m in range(1, today.month)]
+    HIST_DIR.mkdir(parents=True, exist_ok=True)
+    saved = []
+    for year, month in periods:
+        name = f"HISTDATA_COM_ASCII_{pair}_M1{year}{month:02d}.zip" if month else f"HISTDATA_COM_ASCII_{pair}_M1{year}.zip"
+        path = HIST_DIR / name
+        if not path.exists():
+            body = _histdata_zip(pair, year, month)
+            if body is None:
+                print(f"  {pair} {year}{'-%02d' % month if month else ''} : pas de fichier", flush=True)
+                continue
+            path.write_bytes(body)
+            time.sleep(pause)
+        print(f"{pair} {year}{'-%02d' % month if month else ''} : ok", flush=True)
+        saved.append(path)
+    return saved
 
 
 def import_histdata(pair: str) -> list[Path]:

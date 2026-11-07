@@ -1,6 +1,7 @@
 """Ligne de commande.
 
     python -m fxbt download --pairs EURUSD GBPUSD
+    python -m fxbt download-histdata --pairs EURUSD GBPUSD
     python -m fxbt import-histdata --pairs EURUSD GBPUSD
     python -m fxbt check --pairs EURUSD GBPUSD
     python -m fxbt backtest --strategy london_breakout
@@ -61,6 +62,11 @@ def _load(pairs: list[str], period: str, source: str):
 def cmd_download(args):
     for pair in args.pairs:
         data.download(pair, args.start_year, args.end_year)
+
+
+def cmd_download_histdata(args):
+    for pair in args.pairs:
+        data.download_histdata(pair, args.start_year)
 
 
 def cmd_import_histdata(args):
@@ -159,6 +165,11 @@ def main(argv=None):
     d.add_argument("--start-year", type=int, default=2014)
     d.add_argument("--end-year", type=int, default=pd.Timestamp.now().year)
     d.set_defaults(func=cmd_download)
+
+    dh = sub.add_parser("download-histdata", help="Télécharger les M1 HistData.com dans data/histdata/")
+    dh.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
+    dh.add_argument("--start-year", type=int, default=2014)
+    dh.set_defaults(func=cmd_download_histdata)
 
     h = sub.add_parser("import-histdata", help="Importer les fichiers HistData de data/histdata/")
     h.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])

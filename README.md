@@ -13,13 +13,12 @@ python3 -m venv .venv
 
 ## Données
 
-Source principale : **HistData.com** (gratuit, M1).
-1. Sur https://www.histdata.com/download-free-forex-data/, choisir « ASCII », puis « 1 Minute Bar Quotes ».
-2. Pour EUR/USD et GBP/USD, télécharger chaque année de 2014 à l'année dernière, puis chaque mois de
-   l'année en cours.
-3. Déposer les zip tels quels dans `data/histdata/`.
+Source principale : **HistData.com** (gratuit, M1). `download-histdata` récupère les années complètes,
+puis les mois terminés de l'année en cours, dans `data/histdata/`.
 
-Ces fichiers sont en heure de New York sans heure d'été (UTC−5 toute l'année) ; l'import les convertit.
+**Fuseau horaire** : contrairement à ce qu'annonce le site, les fichiers sont en heure de New York jusqu'en
+2018, puis en UTC−5 avec l'heure d'été européenne à partir de 2019. L'import gère les deux cas. Ça a été
+vérifié contre Dukascopy, minute par minute, et sur l'heure de réouverture du marché le dimanche.
 
 Source secondaire : **Dukascopy** (`download`). Le serveur limite fortement le débit et bannit
 l'adresse IP pendant des heures (erreur 429) si on insiste. Elle sert surtout à vérifier HistData
@@ -29,6 +28,7 @@ avec `compare`.
 
 ```bash
 # 1. Données
+.venv/bin/python -m fxbt download-histdata --pairs EURUSD GBPUSD
 .venv/bin/python -m fxbt import-histdata --pairs EURUSD GBPUSD
 .venv/bin/python -m fxbt check
 .venv/bin/python -m fxbt compare --pairs EURUSD   # concordance avec Dukascopy
