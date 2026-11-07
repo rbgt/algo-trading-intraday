@@ -14,6 +14,7 @@ python3 -m venv .venv
 .venv/bin/python -m fxbt download-histdata --pairs EURUSD GBPUSD
 .venv/bin/python -m fxbt import-histdata --pairs EURUSD GBPUSD
 .venv/bin/python -m fxbt download-indices   # S&P 500, DAX, FTSE 100 (stratégie fixing_fin_de_mois)
+.venv/bin/python -m fxbt download-calendar  # calendrier économique 2007 → avril 2025
 .venv/bin/python -m fxbt check          # contrôle qualité : bougies, trous
 
 # 3. Lancer un backtest
@@ -159,6 +160,8 @@ commande refuse de tourner.
 | `import-histdata` | Convertit ces fichiers en parquet mensuels, en gérant le fuseau horaire |
 | `check` | Contrôle qualité par année : nombre de bougies, trous de plus de 30 minutes |
 | `compare` | Compare HistData et Dukascopy minute par minute |
+| `download-calendar` | Télécharge le calendrier économique (Forex Factory, 2007 → avril 2025) dans `data/calendar/` |
+| `check-calendar` | Vérifie les heures du calendrier avec les pics de volatilité M1 |
 | `download-indices` | Télécharge les clôtures du S&P 500, du DAX et du FTSE 100 (Yahoo Finance) dans `data/indices/` |
 | `download` | Télécharge depuis Dukascopy (lent, avec un risque de blocage) |
 
@@ -178,6 +181,18 @@ Source secondaire : **Dukascopy** (`download`). Le serveur limite fortement le d
 l'adresse IP pendant des heures (erreur 429) si on insiste. Elle sert surtout à vérifier HistData
 avec `compare`.
 
+### Calendrier économique
+
+Source : jeu de données public [Forex Factory Calendar](https://huggingface.co/datasets/Tropstan/Forex_Factory_Calendar)
+(licence MIT, 2007 → 7 avril 2025), avec le réel, le consensus, le précédent et le niveau d'impact. Il ne couvre pas la fin de
+la période de validation (après avril 2025).
+
+**Heures manquantes** : 35 à 50 % des annonces n'ont pas d'heure dans le fichier (elles sont placées à minuit, heure de Téhéran).
+La date est juste. L'heure est déduite des 5 publications connues les plus proches du même événement, dans l'heure locale
+de son pays. `check-calendar` vérifie le résultat avec les prix : à l'heure d'une annonce, l'amplitude M1 est de 8 à 20 fois
+l'amplitude habituelle (NFP, Fed, BCE, Banque d'Angleterre) ; décalée d'une heure, le rapport retombe vers 1.
+Les discours, auditions et réunions sont exclus par défaut : ils n'ont pas d'heure de réaction précise.
+
 ## Organisation
 
 Le code est séparé en trois blocs. Les dépendances vont dans un seul sens : la simulation exécute les
@@ -186,6 +201,7 @@ stratégies, mais les stratégies ne connaissent pas la simulation.
 ```
 src/fxbt/
 ├── data.py                  # DONNÉES : téléchargement, import, fuseau horaire, agrégation, contrôles
+├── economic_calendar.py     # DONNÉES : calendrier économique, heures déduites et vérifiées
 ├── strategies/              # STRATÉGIES : règles et signaux uniquement
 │   ├── base.py              #   interface commune (BaseParams, colonnes des signaux)
 │   ├── indicators.py        #   EMA, RSI, ATR, sommets et creux

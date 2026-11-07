@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import data
+from . import data, economic_calendar
 from .simulation import metrics, montecarlo
 from .simulation.engine import Account, Converter, run
 from .strategies import STRATEGIES
@@ -73,6 +73,20 @@ def cmd_download_histdata(args):
 def cmd_download_indices(args):
     for path in data.download_indices():
         print(f"{path.stem} : ok")
+
+
+def cmd_download_calendar(args):
+    print(f"Calendrier : {economic_calendar.download_calendar()}")
+
+
+def cmd_check_calendar(args):
+    cal = economic_calendar.load_calendar()
+    start, end = PERIODS["is"]
+    cal = cal[(cal["time"] >= pd.Timestamp(start, tz=data.TZ)) & (cal["time"] < pd.Timestamp(end, tz=data.TZ))]
+    print(f"{len(cal)} annonces à fort impact, 2015–2021 | heures : {cal['time_source'].value_counts().to_dict()}")
+    m1s = {p: data.load_m1(p, start, end, args.source) for p in ("EURUSD", "GBPUSD")}
+    print("Pic = amplitude M1 à l'heure de l'annonce ÷ amplitude habituelle à cette minute (≈ 1 si l'heure est fausse)")
+    print(economic_calendar.spike_report(cal, m1s).to_string(index=False))
 
 
 def cmd_import_histdata(args):
@@ -201,6 +215,13 @@ def main(argv=None):
 
     di = sub.add_parser("download-indices", help="Télécharger les indices actions (S&P 500, DAX, FTSE 100)")
     di.set_defaults(func=cmd_download_indices)
+
+    dc = sub.add_parser("download-calendar", help="Télécharger le calendrier économique (Forex Factory 2007–2025)")
+    dc.set_defaults(func=cmd_download_calendar)
+
+    cc = sub.add_parser("check-calendar", help="Vérifier les heures du calendrier avec les pics de volatilité")
+    cc.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
+    cc.set_defaults(func=cmd_check_calendar)
 
     h = sub.add_parser("import-histdata", help="Importer les fichiers HistData de data/histdata/")
     h.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
