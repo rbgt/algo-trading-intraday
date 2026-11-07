@@ -29,6 +29,34 @@ REFERENCE_COUNT = 5  # publications connues les plus proches dans le temps
 UNSCHEDULED = ("Speaks", "Testifies", "Hearings", "Summit", "Meetings", "Conference Call")
 
 
+_SUFFIX = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
+
+
+def parse_value(text) -> float:
+    """Valeur numérique d'un champ Forex Factory : « 245K », « -0.3% », « <0.10% », « 2.5M »."""
+    if not isinstance(text, str):
+        return np.nan
+    t = text.strip().replace("%", "").replace("<", "").replace(">", "").replace(",", "")
+    mult = 1.0
+    if t and t[-1].upper() in _SUFFIX:
+        mult, t = _SUFFIX[t[-1].upper()], t[:-1]
+    try:
+        return float(t) * mult
+    except ValueError:
+        return np.nan
+
+
+def usual_effect(detail) -> int:
+    """+1 si un chiffre plus haut que prévu est bon pour la devise, −1 si c'est l'inverse, 0 si pas d'effet constant."""
+    if not isinstance(detail, str):
+        return 0
+    if "'Actual' greater than 'Forecast' is good" in detail or "More hawkish than expected is good" in detail:
+        return 1
+    if "'Actual' less than 'Forecast' is good" in detail:
+        return -1
+    return 0
+
+
 def download_calendar() -> Path:
     CALENDAR_PATH.parent.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(CALENDAR_URL, headers={"User-Agent": "Mozilla/5.0"})
@@ -57,10 +85,14 @@ def _infer_times(group: pd.DataFrame, tz: str) -> pd.Series:
 
 
 def load_calendar(currencies=("USD", "EUR", "GBP"), impacts=("High",), scheduled_only: bool = True) -> pd.DataFrame:
-    """Annonces avec heure de Zurich : colonnes time, currency, impact, event, actual, forecast, previous, time_source."""
+    """Annonces avec heure de Zurich.
+
+    Colonnes : time, currency, impact, event, actual, forecast, previous (texte du fichier), actual_value,
+    forecast_value (numériques), effect (+1 / −1 / 0, voir usual_effect) et time_source.
+    """
     if not CALENDAR_PATH.exists():
         raise FileNotFoundError("Calendrier absent. Lancer d'abord : python -m fxbt download-calendar")
-    raw = pd.read_csv(CALENDAR_PATH, usecols=["DateTime", "Currency", "Impact", "Event", "Actual", "Forecast", "Previous"])
+    raw = pd.read_csv(CALENDAR_PATH, usecols=["DateTime", "Currency", "Impact", "Event", "Actual", "Forecast", "Previous", "Detail"])
     raw = raw[raw["Currency"].isin(currencies) & raw["Impact"].str.split().str[0].isin(impacts)].copy()
     if scheduled_only:
         raw = raw[~raw["Event"].str.contains("|".join(UNSCHEDULED))]
@@ -86,9 +118,13 @@ def load_calendar(currencies=("USD", "EUR", "GBP"), impacts=("High",), scheduled
 
     cal = pd.concat(frames)
     cal["time_source"] = np.where(cal["missing"], "déduite", "fichier")
+    cal["actual_value"] = cal["Actual"].map(parse_value)
+    cal["forecast_value"] = cal["Forecast"].map(parse_value)
+    cal["effect"] = cal["Detail"].map(usual_effect)
     cal = cal.rename(columns={"Currency": "currency", "Impact": "impact", "Event": "event",
                               "Actual": "actual", "Forecast": "forecast", "Previous": "previous"})
-    cols = ["time", "currency", "impact", "event", "actual", "forecast", "previous", "time_source"]
+    cols = ["time", "currency", "impact", "event", "actual", "forecast", "previous",
+            "actual_value", "forecast_value", "effect", "time_source"]
     return cal[cols].sort_values("time").drop_duplicates(["time", "currency", "event"]).reset_index(drop=True)
 
 

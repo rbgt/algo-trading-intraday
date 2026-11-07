@@ -36,6 +36,7 @@ Toutes les commandes s'utilisent sous la forme `.venv/bin/python -m fxbt <comman
 | `breakout_price_action` | Cassure H1, pullback, pin bar M5 (filtre H4) | `docs/regles_breakout_price_action.md` | Rejetée |
 | `breakout_pa_v2` | Version H1 / M15 / M5, avec obliques et triangles à 3 touches | `docs/regles_breakout_price_action_v2.md` | Rejetée |
 | `fixing_fin_de_mois` | Rééquilibrage de fin de mois au fixing de Londres (16h–17h) | `docs/regles_fixing_fin_de_mois.md` | Rejetée |
+| `surprise_annonces` | Poursuite après une surprise macro (chiffre réel contre consensus), entrée 15 min après | `docs/regles_surprise_annonces.md` | Rejetée |
 
 ### La commande `backtest`
 
@@ -57,6 +58,7 @@ Par défaut, elle teste **les deux paires**, sur la **période de conception (20
 | `--capital 100` | Capital de départ en EUR | `100` |
 | `--lot-step 1000` | Pas de taille : `1` = à l'unité, `1000` = micro-lots réels | `1` |
 | `--source histdata` ou `dukascopy` | Source des données | `histdata` |
+| `--news-filter 30` | Pas d'entrée à moins de 30 min d'une annonce à fort impact (calendrier jusqu'en avril 2025) | désactivé |
 
 **Modifier un réglage.** Les réglages possibles sont les champs de la classe `Params` de chaque
 stratégie, par exemple `rr`, `stop_atr` ou `entry_end_hour`. Un nom inconnu affiche la liste complète.

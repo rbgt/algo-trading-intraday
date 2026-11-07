@@ -4,7 +4,7 @@ Pour en ajouter une : créer un module qui respecte l'interface décrite dans ba
 puis l'enregistrer ci-dessous.
 """
 
-from . import breakout_pa_v2, breakout_price_action, contre_tendance, ema_breakout, fixing_fin_de_mois, london_breakout
+from . import breakout_pa_v2, breakout_price_action, contre_tendance, ema_breakout, fixing_fin_de_mois, london_breakout, surprise_annonces
 
 STRATEGIES = {
     "ema_breakout": ema_breakout,
@@ -13,4 +13,5 @@ STRATEGIES = {
     "breakout_price_action": breakout_price_action,
     "breakout_pa_v2": breakout_pa_v2,
     "fixing_fin_de_mois": fixing_fin_de_mois,
+    "surprise_annonces": surprise_annonces,
 }

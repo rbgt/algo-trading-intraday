@@ -170,3 +170,28 @@ def test_month_to_date_return_uses_only_past_closes():
     closes = pd.Series([100.0, 110.0, 121.0, 999.0], index=pd.to_datetime(["2020-01-31", "2020-02-27", "2020-02-28", "2020-02-29"]))
     # Signal le 28 février : référence = 31 janvier, dernière clôture connue = 27 février.
     assert np.isclose(month_to_date_return(closes, pd.Timestamp("2020-02-28")), 0.10)
+
+
+def test_surprise_direction_per_pair(monkeypatch):
+    from fxbt import economic_calendar
+    from fxbt.strategies import surprise_annonces as sa
+
+    m1 = synthetic_m1(days=120, seed=5)
+    days = pd.bdate_range("2020-01-06", periods=60, tz=TZ)
+    rows = []
+    for i, d in enumerate(days):
+        # Une annonce USD à 14h30 et une annonce EUR à 10h00 chaque jour ; la dernière de chaque est une grosse surprise.
+        big = 4 if i == len(days) - 1 else (1 if i % 2 else -1)
+        rows.append({"time": d + pd.Timedelta("14:30:00"), "currency": "USD", "event": "NFP",
+                     "actual_value": 100 + big, "forecast_value": 100, "effect": 1})
+        rows.append({"time": d + pd.Timedelta("10:00:00"), "currency": "EUR", "event": "Ifo",
+                     "actual_value": 100 + big, "forecast_value": 100, "effect": 1})
+    monkeypatch.setattr(economic_calendar, "load_calendar", lambda *a, **k: pd.DataFrame(rows))
+
+    sig = sa.generate_signals(m1, sa.Params(z_threshold=2.0), "EURUSD")
+    last_day = days[-1]
+    usd = sig[sig["entry_time"] == last_day + pd.Timedelta("14:45:00")]
+    eur = sig[sig["entry_time"] == last_day + pd.Timedelta("10:15:00")]
+    assert usd["direction"].tolist() == [-1]   # bonne surprise pour le dollar : vente d'EUR/USD
+    assert eur["direction"].tolist() == [1]    # bonne surprise pour l'euro : achat d'EUR/USD
+    assert (sig["deadline"].dt.strftime("%H:%M") == "17:00").all()

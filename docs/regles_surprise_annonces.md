@@ -59,3 +59,30 @@ Sur 2015–2021, coût de 1,1 pip, la stratégie est retenue **seulement si tout
 | Sortie | 17h00 | 2 h après l'entrée |
 | Stop (× ATR journalier) | 0,5 | 0,3 · 1,0 |
 | Confirmation | aucune | le mouvement des 15 premières minutes va dans le sens de la surprise |
+
+## 6. Résultat (2015–2021, HistData) : **rejetée**
+
+Test lancé après le commit des règles ci-dessus, sans modification.
+
+| Paire | Trades | Réussite | R moyen net (1,1 pip) | R brut (sans coût) | Profit factor | Années positives |
+|---|---|---|---|---|---|---|
+| EUR/USD | 368 | 44 % | −0,050 | −0,024 | 0,82 | 1 / 7 |
+| GBP/USD | 435 | 46 % | −0,036 | −0,017 | 0,87 | 2 / 7 |
+
+Aucun critère n'est rempli.
+- **Variantes** : les 8 variantes de la section 5 sont toutes négatives sur les deux paires (de −0,02 à −0,07 R).
+- **Monte-Carlo** (200 jeux de réglages tirés dans les plages `PARAM_SPACE`) : aucun n'est positif sur les deux paires.
+  R médian de −0,04 sur EUR/USD et de −0,03 sur GBP/USD.
+- **Test contre le hasard** : 86 % (EUR/USD) et 90 % (GBP/USD) des tirages à pile ou face font **mieux** que la
+  stratégie. Le sens de la surprise ne prévoit pas la suite du mouvement 15 minutes après l'annonce.
+
+Ce qu'on apprend :
+- **Le marché intègre la surprise en moins de 15 minutes**, même 5 minutes (variante). Après, il ne reste pas de
+  poursuite exploitable : le gain brut est même légèrement négatif.
+- La stratégie fait un peu **moins bien** que le hasard (elle est dans les 10 à 14 % les plus faibles), ce qui pourrait
+  suggérer un léger retour en arrière après l'annonce. Ce n'est **pas** significatif, et inverser le sens après coup serait
+  de la suroptimisation. Ce serait une nouvelle hypothèse, à écrire et à tester à part.
+- **Les signaux ne sont pas techniques**, et le résultat est pourtant le même que pour les stratégies techniques : sur ces
+  marchés, l'information publique est intégrée trop vite pour un particulier.
+
+La période 2022–2026 n'a pas été utilisée.
