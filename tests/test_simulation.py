@@ -123,3 +123,13 @@ def test_montecarlo_sampling_respects_space():
     assert all(2 <= s["a"] <= 5 and 0.1 <= s["b"] <= 0.4 and s["c"] in (True, False) for s in samples)
     assert {s["a"] for s in samples} == {2, 3, 4, 5}
     assert sample_params(space, 5, seed=1) == samples[:5]  # reproductible
+
+
+def test_news_filter_blocks_entries_near_announcements():
+    m1 = make_m1(flat_until_17([(1.1000, 1.1001, 1.0999, 1.1000)], 1.1000))
+    news = np.array([(DAY + pd.Timedelta("08:20:00")).as_unit("ns").value])
+    sig = pd.concat([signal(time="08:00"), signal(time="09:00")], ignore_index=True)
+    sig["deadline"] = [DAY + pd.Timedelta("08:30:00"), DAY + pd.Timedelta(hours=17)]
+    t = run(sig, m1, "EURUSD", BaseParams(max_trades_per_day=5), Account(max_leverage=1000), 0.0, converter(m1), news, 30)
+    # 8h00 est à 20 min de l'annonce de 8h20 : bloqué. 9h00 est à 40 min : autorisé.
+    assert list(t.entry_time.dt.strftime("%H:%M")) == ["09:00"]

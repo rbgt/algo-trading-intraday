@@ -17,6 +17,7 @@ import itertools
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from . import data, economic_calendar
@@ -49,6 +50,14 @@ def _parse_params(cls, overrides: list[str]):
         key, _, raw = item.partition("=")
         values[key] = _cast(cls, key, raw)
     return cls(**values)
+
+
+def _news_times(pair: str, window_min: int):
+    """Heures des annonces à fort impact des deux devises de la paire (pour le filtre d'annonces)."""
+    if not window_min:
+        return None
+    cal = economic_calendar.load_calendar(currencies=(pair[:3], pair[3:]))
+    return np.sort(cal["time"].dt.tz_convert("UTC").to_numpy("datetime64[ns]").astype("int64"))
 
 
 def _load(pairs: list[str], period: str, source: str):
@@ -122,7 +131,8 @@ def cmd_backtest(args):
     account = Account(capital=args.capital, lot_step=args.lot_step)
     print(f"Stratégie : {args.strategy}  |  période : {start} → {end or 'aujourd’hui'}  |  source : {args.source}")
     print(f"Paramètres : {params}")
-    print(f"Compte : {account}\n")
+    print(f"Compte : {account}")
+    print(f"Filtre d'annonces : {f'± {args.news_filter} min autour des annonces à fort impact' if args.news_filter else 'désactivé'}\n")
 
     m1s, converter, tz_start = _load(args.pairs, args.period, args.source)
     RESULTS_DIR.mkdir(exist_ok=True)
@@ -132,7 +142,8 @@ def cmd_backtest(args):
         signals = module.generate_signals(m1s[pair], params, pair)
         signals = signals[signals["entry_time"] >= tz_start]
         for cost in args.costs:
-            trades = run(signals, m1s[pair], pair, params, account, cost, converter)
+            trades = run(signals, m1s[pair], pair, params, account, cost, converter,
+                         _news_times(pair, args.news_filter), args.news_filter)
             rows.append({"paire": pair, "coût_pips": cost, **metrics.summarize(trades, account.capital)})
             out = RESULTS_DIR / f"{args.strategy}_{args.period}_{pair}_{cost}.csv"
             trades.to_csv(out, index=False)
@@ -163,7 +174,8 @@ def cmd_sweep(args):
         row = dict(zip(grid, combo))
         for pair in args.pairs:
             signals = module.generate_signals(m1s[pair], params, pair)
-            trades = run(signals[signals["entry_time"] >= tz_start], m1s[pair], pair, params, account, args.cost, converter)
+            trades = run(signals[signals["entry_time"] >= tz_start], m1s[pair], pair, params, account, args.cost, converter,
+                         _news_times(pair, args.news_filter), args.news_filter)
             m = metrics.summarize(trades, account.capital)
             row |= {f"{pair}_trades": m["trades"], f"{pair}_R_moyen": m.get("R_moyen"), f"{pair}_PF": m.get("profit_factor")}
         rows.append(row)
@@ -246,6 +258,8 @@ def main(argv=None):
     b.add_argument("--capital", type=float, default=100.0)
     b.add_argument("--lot-step", type=int, default=1, help="pas de taille en unités (1000 = micro-lot)")
     b.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
+    b.add_argument("--news-filter", type=int, default=0, metavar="MIN",
+                   help="pas d'entrée à moins de MIN minutes d'une annonce à fort impact (0 = désactivé)")
     b.set_defaults(func=cmd_backtest)
 
     w = sub.add_parser("sweep", help="Test de sensibilité (période de conception seulement)")
@@ -257,6 +271,7 @@ def main(argv=None):
     w.add_argument("--capital", type=float, default=100.0)
     w.add_argument("--lot-step", type=int, default=1)
     w.add_argument("--source", choices=sorted(data.SOURCES), default="histdata")
+    w.add_argument("--news-filter", type=int, default=0, metavar="MIN")
     w.set_defaults(func=cmd_sweep)
 
     mc = sub.add_parser("montecarlo", help="Monte-Carlo sur les paramètres et test contre le hasard (2015–2021)")

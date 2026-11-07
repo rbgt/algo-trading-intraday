@@ -7,7 +7,8 @@ l'ordre chronologique et applique les règles communes :
 - taille selon le risque, plafonnée par le levier, capital composé,
 - sortie sur stop, objectif ou heure limite, résolue en M1 :
   stop compté d'abord si les deux sont touchés dans la même minute,
-- coût aller-retour fixe en pips (spread et glissement).
+- coût aller-retour fixe en pips (spread et glissement),
+- en option, pas d'entrée autour des annonces à fort impact (filtre d'annonces).
 """
 
 from __future__ import annotations
@@ -76,6 +77,15 @@ _MAX_ENTRY_DELAY = 5 * _NS_MIN
 _MAX_EXIT_DELAY = 60 * _NS_MIN
 
 
+def near_news(news_times: np.ndarray | None, t: int, window_min: int) -> bool:
+    """Vrai si une annonce tombe à moins de window_min minutes de t (avant ou après)."""
+    if news_times is None or not len(news_times):
+        return False
+    i = int(np.searchsorted(news_times, t))
+    window = window_min * _NS_MIN
+    return (i < len(news_times) and news_times[i] - t <= window) or (i > 0 and t - news_times[i - 1] <= window)
+
+
 def resolve_exit(b: Bars, i0: int, i1: int, d: int, stop: float, target: float, deadline: int):
     """Cherche la sortie entre les minutes i0 (incluse) et i1 (exclue).
 
@@ -112,7 +122,11 @@ def run(
     account: Account,
     cost_pips: float,
     converter: Converter,
+    news_times: np.ndarray | None = None,
+    news_window_min: int = 0,
 ) -> pd.DataFrame:
+    """Simule les signaux. news_times : heures des annonces (int64, ns, triées) ; aucune entrée à moins
+    de news_window_min minutes avant ou après l'une d'elles."""
     b = to_bars(m1)
     pip = pip_size(pair)
     base, quote = pair[:3], pair[3:]
@@ -125,6 +139,8 @@ def run(
     for s in signals.sort_values("entry_time").itertuples(index=False):
         t = s.entry_time.as_unit("ns").value
         if t <= busy_until:
+            continue
+        if news_window_min and near_news(news_times, t, news_window_min):
             continue
         if s.day != cur_day:
             cur_day, n_today, losses = s.day, 0, 0
