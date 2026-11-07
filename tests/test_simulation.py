@@ -133,3 +133,30 @@ def test_news_filter_blocks_entries_near_announcements():
     t = run(sig, m1, "EURUSD", BaseParams(max_trades_per_day=5), Account(max_leverage=1000), 0.0, converter(m1), news, 30)
     # 8h00 est à 20 min de l'annonce de 8h20 : bloqué. 9h00 est à 40 min : autorisé.
     assert list(t.entry_time.dt.strftime("%H:%M")) == ["09:00"]
+
+
+def test_converter_goes_through_usd_for_any_currency():
+    idx = pd.date_range("2020-01-01", periods=2, freq="1min", tz=TZ)
+    conv = Converter({"EURUSD": pd.Series(1.25, index=idx), "USDCHF": pd.Series(0.8, index=idx),
+                      "BTCUSD": pd.Series(10_000.0, index=idx)})
+    t = idx[-1].as_unit("ns").value
+    assert conv.to_eur("USD", t) == pytest.approx(0.8)          # 1 / 1,25
+    assert conv.to_eur("CHF", t) == pytest.approx(1.0)          # (1 / 0,8) / 1,25
+    assert conv.to_eur("BTC", t) == pytest.approx(8_000.0)      # 10 000 / 1,25
+
+
+def test_btc_cost_in_percent_and_fractional_size():
+    from fxbt.data import cost_in_price
+    from fxbt.simulation.engine import account_for
+
+    assert cost_in_price("BTCUSD", 0.2, 30_000) == pytest.approx(60.0)
+    assert cost_in_price("EURUSD", 1.1, 1.1) == pytest.approx(0.00011)
+    acc = account_for("BTCUSD")
+    assert acc.max_leverage == 2.0 and acc.lot_step == 0.0001
+    idx = pd.date_range(DAY + pd.Timedelta("08:00:00"), periods=9 * 60 + 5, freq="1min")
+    m1 = pd.DataFrame({"open": 10_000.0, "high": 10_001.0, "low": 9_999.0, "close": 10_000.0, "volume": 1.0}, index=idx)
+    conv = Converter({"EURUSD": m1["close"] * 0 + 1.0, "BTCUSD": m1["close"]})
+    t = run(signal(stop_dist=100.0), m1, "BTCUSD", BaseParams(), acc, 0.2, conv).iloc[0]
+    # 1 € de risque / 100 $ de stop = 0,01 BTC ; plafond de levier 100 × 2 × 0,98 / 10 000 = 0,0196 BTC.
+    assert t.units == pytest.approx(0.01)
+    assert t.r == pytest.approx(-20.0 / 100.0)  # sortie à plat à 17h, coût de 0,2 % de 10 000 $ = 20 $

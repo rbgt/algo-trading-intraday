@@ -22,7 +22,7 @@ from .data import DATA_DIR, TZ
 
 CALENDAR_PATH = DATA_DIR / "calendar" / "forex_factory_2007_2025.csv"
 CALENDAR_URL = "https://huggingface.co/datasets/Tropstan/Forex_Factory_Calendar/resolve/main/forex_factory_cache.csv"
-HOME_TZ = {"USD": "America/New_York", "EUR": "Europe/Berlin", "GBP": "Europe/London"}
+HOME_TZ = {"USD": "America/New_York", "EUR": "Europe/Berlin", "GBP": "Europe/London", "CHF": "Europe/Zurich"}
 REFERENCE_COUNT = 5  # publications connues les plus proches dans le temps
 # Discours, auditions et réunions : pas d'heure de réaction précise, et des heures souvent fausses
 # dans le fichier (pic de volatilité absent, voir `check-calendar`). Exclus par défaut.
@@ -84,7 +84,7 @@ def _infer_times(group: pd.DataFrame, tz: str) -> pd.Series:
     return out
 
 
-def load_calendar(currencies=("USD", "EUR", "GBP"), impacts=("High",), scheduled_only: bool = True) -> pd.DataFrame:
+def load_calendar(currencies=("USD", "EUR", "GBP", "CHF"), impacts=("High",), scheduled_only: bool = True) -> pd.DataFrame:
     """Annonces avec heure de Zurich.
 
     Colonnes : time, currency, impact, event, actual, forecast, previous (texte du fichier), actual_value,
@@ -130,7 +130,7 @@ def load_calendar(currencies=("USD", "EUR", "GBP"), impacts=("High",), scheduled
 
 def spike_report(cal: pd.DataFrame, m1s: dict[str, pd.DataFrame], min_count: int = 12) -> pd.DataFrame:
     """Pic de volatilité par événement et par source d'heure, sur la paire concernée."""
-    pair_for = {"USD": "EURUSD", "EUR": "EURUSD", "GBP": "GBPUSD"}
+    pair_for = {"USD": "EURUSD", "EUR": "EURUSD", "GBP": "GBPUSD", "CHF": "USDCHF"}
     rows = []
     for (cur, ev), g in cal.groupby(["currency", "event"]):
         if len(g) < min_count or pair_for.get(cur) not in m1s:

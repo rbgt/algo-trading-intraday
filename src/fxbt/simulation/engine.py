@@ -20,7 +20,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from ..data import pip_size
+from ..data import INSTRUMENTS, cost_in_price, pip_size
 from ..strategies.base import BaseParams
 
 @dataclass(frozen=True)
@@ -29,7 +29,15 @@ class Account:
     risk_pct: float = 1.0
     max_leverage: float = 5.0
     margin_buffer: float = 0.98
-    lot_step: int = 1
+    lot_step: float = 1
+
+
+def account_for(pair: str, capital: float = 100.0, lot_step: float | None = None) -> Account:
+    """Compte de Rick (1 % de risque) avec le levier maximal et la taille minimale de l'instrument."""
+    inst = INSTRUMENTS.get(pair)
+    if inst is None:
+        return Account(capital=capital, lot_step=lot_step or 1)
+    return Account(capital=capital, max_leverage=min(5.0, inst.max_leverage), lot_step=lot_step or inst.lot_step)
 
 
 class Bars(NamedTuple):
@@ -61,15 +69,19 @@ class Converter:
         i = np.searchsorted(times, t, side="right") - 1
         return float(values[max(i, 0)])
 
+    def _to_usd(self, ccy: str, t: int) -> float:
+        if ccy == "USD":
+            return 1.0
+        if f"{ccy}USD" in self._series:
+            return self._asof(f"{ccy}USD", t)
+        if f"USD{ccy}" in self._series:
+            return 1.0 / self._asof(f"USD{ccy}", t)
+        raise ValueError(f"Conversion vers EUR impossible pour {ccy} : charger {ccy}USD ou USD{ccy}")
+
     def to_eur(self, ccy: str, t: int) -> float:
         if ccy == "EUR":
             return 1.0
-        eurusd = self._asof("EURUSD", t)
-        if ccy == "USD":
-            return 1.0 / eurusd
-        if ccy == "GBP":
-            return self._asof("GBPUSD", t) / eurusd
-        raise ValueError(f"Conversion vers EUR non gérée pour {ccy}")
+        return self._to_usd(ccy, t) / self._asof("EURUSD", t)
 
 
 _NS_MIN = 60_000_000_000
@@ -120,7 +132,7 @@ def run(
     pair: str,
     params: BaseParams,
     account: Account,
-    cost_pips: float,
+    cost: float,  # coût aller-retour dans l'unité de l'instrument (pips, ou % du prix)
     converter: Converter,
     news_times: np.ndarray | None = None,
     news_window_min: int = 0,
@@ -180,7 +192,7 @@ def run(
             continue
 
         j, exit_px, reason = resolve_exit(b, i0, i1, d, stop, target, deadline)
-        move = d * (exit_px - entry) - cost_pips * pip
+        move = d * (exit_px - entry) - cost_in_price(pair, cost, entry)
         pnl = move * units * quote_eur  # conversion au taux d'entrée
         equity += pnl
         n_today += 1

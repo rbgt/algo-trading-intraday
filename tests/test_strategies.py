@@ -195,3 +195,17 @@ def test_surprise_direction_per_pair(monkeypatch):
     assert usd["direction"].tolist() == [-1]   # bonne surprise pour le dollar : vente d'EUR/USD
     assert eur["direction"].tolist() == [1]    # bonne surprise pour l'euro : achat d'EUR/USD
     assert (sig["deadline"].dt.strftime("%H:%M") == "17:00").all()
+
+
+def test_fixing_direction_is_reversed_when_usd_is_base(monkeypatch):
+    from fxbt import data
+    from fxbt.strategies import fixing_fin_de_mois as fx
+
+    m1 = synthetic_m1(days=120, seed=4)
+    dates = pd.bdate_range("2019-12-02", "2020-04-30")
+    indices = {"^GSPC": pd.Series(np.linspace(100, 130, len(dates)), index=dates),
+               "^SSMI": pd.Series(100.0, index=dates)}
+    monkeypatch.setattr(data, "load_index", lambda s: indices[s])
+    # S&P 500 devant : vente de dollar, donc vente d'USD/CHF.
+    assert (fx.generate_signals(m1, fx.Params(), "USDCHF")["direction"] == -1).all()
+    assert fx.generate_signals(m1, fx.Params(), "BTCUSD").empty

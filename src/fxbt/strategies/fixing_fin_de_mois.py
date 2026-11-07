@@ -1,9 +1,10 @@
 """Stratégie E : rééquilibrage de fin de mois au fixing de Londres (règles : docs/regles_fixing_fin_de_mois.md).
 
 - Le dernier jour ouvré du mois, on compare la performance du mois du S&P 500 à celle de
-  l'indice européen de la paire (DAX pour EUR/USD, FTSE 100 pour GBP/USD), jusqu'à la veille.
+  l'indice européen de la paire (DAX pour EUR/USD, FTSE 100 pour GBP/USD, SMI pour USD/CHF),
+  jusqu'à la veille.
 - Si le S&P 500 a fait mieux, les investisseurs européens vendent du dollar au fixing : on
-  achète la paire. Sinon, on la vend.
+  achète EUR/USD ou GBP/USD, on vend USD/CHF. Sinon, l'inverse.
 - Entrée à 16h00 (Zurich), sortie à 17h00 au fixing, stop de protection à 0,5 × ATR journalier.
 """
 
@@ -20,7 +21,7 @@ from .base import SIGNAL_COLUMNS, BaseParams
 from .indicators import atr
 
 US_INDEX = "^GSPC"
-FOREIGN_INDEX = {"EURUSD": "^GDAXI", "GBPUSD": "^FTSE"}
+FOREIGN_INDEX = {"EURUSD": "^GDAXI", "GBPUSD": "^FTSE", "USDCHF": "^SSMI"}
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,10 @@ def last_trading_days(m1: pd.DataFrame, entry_time: str) -> pd.DatetimeIndex:
 
 
 def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd.DataFrame:
+    if pair not in FOREIGN_INDEX:  # pas d'indice actions de référence (par exemple le BTC)
+        return pd.DataFrame(columns=SIGNAL_COLUMNS)
+    # Vente de dollar : achat de la paire si l'USD est la devise de cotation, vente s'il est la devise de base.
+    usd_side = 1 if pair.endswith("USD") else -1
     us = data.load_index(US_INDEX)
     foreign = data.load_index(FOREIGN_INDEX[pair])
     d_atr = atr(daily_bars(m1), p.atr_len).shift(1)
@@ -66,7 +71,7 @@ def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd
             continue
         rows.append({
             "entry_time": day + pd.Timedelta(p.entry_time + ":00"),
-            "direction": 1 if diff > 0 else -1,  # S&P 500 devant : vente de dollar, achat de la paire
+            "direction": usd_side * (1 if diff > 0 else -1),  # S&P 500 devant : vente de dollar
             "stop_dist": p.stop_atr * a,
             "stop_level": np.nan,
             "rr": p.rr,

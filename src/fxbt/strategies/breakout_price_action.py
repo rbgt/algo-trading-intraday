@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from ..data import OHLCV, TZ, resample
+from ..data import OHLCV, TZ, pip_size, resample
 from .base import SIGNAL_COLUMNS, BaseParams
 from .indicators import atr, swing_points
 
@@ -43,7 +43,7 @@ class Params(BaseParams):
     pin_wick_body: float = 2.0
     pin_wick_range: float = 0.6
     stop_buffer_pips: float = 2.0
-    pip: float = 0.0001  # 0.01 pour les paires en JPY
+    pip: float = 0.0001  # utilisé seulement si la paire n'est pas connue
     atr_len: int = 14
     entry_start_hour: int = 8
     entry_end_hour: int = 12
@@ -218,6 +218,7 @@ def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd
     k_lvl = lvl_times.searchsorted(m5.index, side="right") - 1
     pos = np.asarray(k_lvl + (m5.index - lvl_times[np.maximum(k_lvl, 0)]) / tf_delta, dtype=float)
 
+    pip = pip_size(pair) if pair else p.pip
     times = m5.index
     day = times.normalize()
     rows = []
@@ -247,7 +248,7 @@ def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd
         # Objectif : extrême atteint depuis l'ouverture de la bougie de cassure jusqu'au signal inclus.
         j0 = times.searchsorted(z["breakout_open"])
         target = h[j0:k + 1].max() if d == 1 else l[j0:k + 1].min()
-        stop = l[k] - p.stop_buffer_pips * p.pip if d == 1 else h[k] + p.stop_buffer_pips * p.pip
+        stop = l[k] - p.stop_buffer_pips * pip if d == 1 else h[k] + p.stop_buffer_pips * pip
         rows.append({
             "entry_time": times[k + 1],
             "direction": d,

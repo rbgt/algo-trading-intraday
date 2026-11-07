@@ -17,12 +17,17 @@ import numpy as np
 import pandas as pd
 
 from .. import data
-from ..data import pip_size
+from ..data import INSTRUMENTS, cost_in_price
 from ..strategies import STRATEGIES
 from . import metrics
-from .engine import Account, Converter, resolve_exit, run, to_bars
+from .engine import Converter, account_for, resolve_exit, run, to_bars
 
 _WORKER: dict = {}
+
+
+def _cost(pair: str, cost: float | None) -> float:
+    """Coût demandé, sinon le niveau de base de l'instrument."""
+    return cost if cost is not None else (INSTRUMENTS[pair].costs[0] if pair in INSTRUMENTS else 1.1)
 
 
 def sample_params(space: dict, n: int, seed: int) -> list[dict]:
@@ -59,8 +64,10 @@ def _evaluate(job: tuple[str, dict]) -> dict:
     row = dict(values)
     for pair in w["pairs"]:
         signals = module.generate_signals(w["m1s"][pair], params, pair)
-        trades = run(signals[signals["entry_time"] >= w["start"]], w["m1s"][pair], pair, params, Account(), w["cost"], w["converter"])
-        m = metrics.summarize(trades, Account().capital)
+        account = account_for(pair)
+        trades = run(signals[signals["entry_time"] >= w["start"]], w["m1s"][pair], pair, params, account,
+                     _cost(pair, w["cost"]), w["converter"])
+        m = metrics.summarize(trades, account.capital)
         row[f"{pair}_trades"] = m["trades"]
         row[f"{pair}_R"] = m.get("R_moyen", np.nan)
         row[f"{pair}_PF"] = m.get("profit_factor", np.nan)
@@ -90,7 +97,7 @@ def summarize_montecarlo(table: pd.DataFrame, pairs: list[str], min_trades: int 
     return out
 
 
-def _trade_r(b, pip: float, entry_time, deadline, d: int, dist: float, rr: float, cost: float) -> float:
+def _trade_r(b, pair: str, entry_time, deadline, d: int, dist: float, rr: float, cost: float) -> float:
     t = entry_time.as_unit("ns").value
     dl = deadline.as_unit("ns").value
     i0 = int(np.searchsorted(b.times, t))
@@ -98,7 +105,7 @@ def _trade_r(b, pip: float, entry_time, deadline, d: int, dist: float, rr: float
     entry = float(b.open[i0])
     stop, target = entry - d * dist, entry + d * rr * dist
     _, exit_px, _ = resolve_exit(b, i0, i1, d, stop, target, dl)
-    return (d * (exit_px - entry) - cost * pip) / dist
+    return (d * (exit_px - entry) - cost_in_price(pair, cost, entry)) / dist
 
 
 def direction_null(strategy: str, params, m1s: dict, converter: Converter, start: pd.Timestamp,
@@ -110,16 +117,17 @@ def direction_null(strategy: str, params, m1s: dict, converter: Converter, start
     for pair in pairs:
         m1 = m1s[pair]
         signals = module.generate_signals(m1, params, pair)
-        trades = run(signals[signals["entry_time"] >= start], m1, pair, params, Account(), cost, converter)
+        pair_cost = _cost(pair, cost)
+        trades = run(signals[signals["entry_time"] >= start], m1, pair, params, account_for(pair), pair_cost, converter)
         if trades.empty:
             continue
-        b, pip = to_bars(m1), pip_size(pair)
+        b = to_bars(m1)
         dist = (trades["entry"] - trades["stop"]).abs().to_numpy()
         rr = ((trades["target"] - trades["entry"]).abs().to_numpy()) / dist
         deadline = trades["entry_time"].dt.normalize() + pd.Timedelta(hours=params.flat_hour)
         # Chaque trade simulé indépendamment, dans les deux sens, au même coût.
-        r_long = np.array([_trade_r(b, pip, t, dl, 1, s, k, cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
-        r_short = np.array([_trade_r(b, pip, t, dl, -1, s, k, cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
+        r_long = np.array([_trade_r(b, pair, t, dl, 1, s, k, pair_cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
+        r_short = np.array([_trade_r(b, pair, t, dl, -1, s, k, pair_cost) for t, dl, s, k in zip(trades["entry_time"], deadline, dist, rr)])
         actual = np.where(trades["direction"].to_numpy() == 1, r_long, r_short).mean()
         coins = rng.integers(0, 2, size=(flips, len(trades))).astype(bool)
         null = np.where(coins, r_long, r_short).mean(axis=1)

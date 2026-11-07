@@ -11,8 +11,9 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 
 # 2. Récupérer et préparer les données (une seule fois, environ 5 minutes)
-.venv/bin/python -m fxbt download-histdata --pairs EURUSD GBPUSD
-.venv/bin/python -m fxbt import-histdata --pairs EURUSD GBPUSD
+.venv/bin/python -m fxbt download-histdata --pairs EURUSD GBPUSD USDCHF
+.venv/bin/python -m fxbt import-histdata --pairs EURUSD GBPUSD USDCHF
+.venv/bin/python -m fxbt download-binance   # BTC/USD (BTC/USDT de Binance, depuis août 2017)
 .venv/bin/python -m fxbt download-indices   # S&P 500, DAX, FTSE 100 (stratégie fixing_fin_de_mois)
 .venv/bin/python -m fxbt download-calendar  # calendrier économique 2007 → avril 2025
 .venv/bin/python -m fxbt check          # contrôle qualité : bougies, trous
@@ -119,6 +120,18 @@ Il sert à vérifier qu'un résultat ne dépend pas d'un réglage précis.
 Avec plusieurs `--grid`, toutes les combinaisons sont testées. Le tableau final est aussi enregistré dans
 `results/sweep_<stratégie>.csv`.
 
+### Instruments
+
+| Instrument | Source | Depuis | Coûts testés (aller-retour) | Levier max | Taille min |
+|---|---|---|---|---|---|
+| EUR/USD, GBP/USD | HistData | 2014 | 1,1 · 1,5 · 2 pips | 1:5 | 1 unité |
+| USD/CHF | HistData | 2014 | 1,5 · 2 · 2,5 pips | 1:5 | 1 unité |
+| BTC/USD | Binance (BTC/USDT) | août 2017 | 0,2 · 0,3 · 0,5 % du prix | 1:2 | 0,0001 BTC |
+
+Les caractéristiques sont dans `data.INSTRUMENTS`. `--costs` s'exprime dans l'unité de l'instrument. Par défaut, les
+commandes testent EUR/USD et GBP/USD ; ajouter `--pairs USDCHF BTCUSD` pour les autres. Résultats des 7 stratégies sur
+USD/CHF et BTC/USD : `docs/nouvelles_paires.md`.
+
 ### Paramétrage ou stratégie : `montecarlo`
 
 ```bash
@@ -162,6 +175,7 @@ commande refuse de tourner.
 | `import-histdata` | Convertit ces fichiers en parquet mensuels, en gérant le fuseau horaire |
 | `check` | Contrôle qualité par année : nombre de bougies, trous de plus de 30 minutes |
 | `compare` | Compare HistData et Dukascopy minute par minute |
+| `download-binance` | Télécharge les M1 du BTC/USDT depuis Binance (public, depuis août 2017) |
 | `download-calendar` | Télécharge le calendrier économique (Forex Factory, 2007 → avril 2025) dans `data/calendar/` |
 | `check-calendar` | Vérifie les heures du calendrier avec les pics de volatilité M1 |
 | `download-indices` | Télécharge les clôtures du S&P 500, du DAX et du FTSE 100 (Yahoo Finance) dans `data/indices/` |

@@ -13,12 +13,15 @@ Deux sources, stockées en parquet mensuel (UTC) dans data/raw/ :
 from __future__ import annotations
 
 import http.client
+import io
 import lzma
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,8 +32,31 @@ TZ = "Europe/Zurich"
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 HIST_DIR = DATA_DIR / "histdata"
 INDEX_DIR = DATA_DIR / "indices"
-INDICES = {"^GSPC": "S&P 500", "^GDAXI": "DAX", "^FTSE": "FTSE 100"}
-SOURCES = {"dukascopy": "BID", "histdata": "HIST"}  # source → étiquette des fichiers
+INDICES = {"^GSPC": "S&P 500", "^GDAXI": "DAX", "^FTSE": "FTSE 100", "^SSMI": "SMI"}
+SOURCES = {"dukascopy": "BID", "histdata": "HIST", "binance": "BIN"}  # source → étiquette des fichiers
+
+
+@dataclass(frozen=True)
+class Instrument:
+    """Caractéristiques de trading d'un instrument."""
+
+    pip: float
+    costs: tuple[float, ...]  # coûts aller-retour testés : de base, élevé, très élevé
+    cost_unit: str  # "pips" (forex) ou "%" (pourcentage du prix, crypto)
+    max_leverage: float
+    lot_step: float  # plus petite taille de position
+    source: str | None = None  # source imposée (sinon celle choisie en ligne de commande)
+
+
+INSTRUMENTS = {
+    "EURUSD": Instrument(0.0001, (1.1, 1.5, 2.0), "pips", 5.0, 1),
+    "GBPUSD": Instrument(0.0001, (1.1, 1.5, 2.0), "pips", 5.0, 1),
+    # Spread plus large sur USD/CHF chez les brokers particuliers.
+    "USDCHF": Instrument(0.0001, (1.5, 2.0, 2.5), "pips", 5.0, 1),
+    # BTC/USDT de Binance (l'USDT vaut environ 1 USD). Un « pip » vaut 1 USD. Levier plafonné à 1:2 pour les
+    # cryptos chez les brokers européens régulés. Coûts à vérifier chez le broker : 0,2 % aller-retour de base.
+    "BTCUSD": Instrument(1.0, (0.2, 0.3, 0.5), "%", 2.0, 0.0001, source="binance"),
+}
 HOST = "datafeed.dukascopy.com"
 PATH = "/datafeed/{pair}/{y}/{m:02d}/{d:02d}/{side}_candles_min_1.bi5"
 OHLCV = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
@@ -42,7 +68,17 @@ _DTYPE = np.dtype([
 
 
 def pip_size(pair: str) -> float:
+    if pair in INSTRUMENTS:
+        return INSTRUMENTS[pair].pip
     return 0.01 if pair.endswith("JPY") else 0.0001
+
+
+def cost_in_price(pair: str, cost: float, price: float) -> float:
+    """Coût aller-retour en unité de prix : pips pour le forex, pourcentage du prix pour la crypto."""
+    inst = INSTRUMENTS.get(pair)
+    if inst is not None and inst.cost_unit == "%":
+        return cost / 100 * price
+    return cost * pip_size(pair)
 
 
 def _point(pair: str) -> float:
@@ -280,8 +316,47 @@ def load_index(symbol: str) -> pd.Series:
     return pd.read_csv(path, index_col="date", parse_dates=["date"])["close"]
 
 
+BINANCE_URL = "https://data.binance.vision/data/spot/monthly/klines/{symbol}/1m/{symbol}-1m-{month}.zip"
+BINANCE_SYMBOLS = {"BTCUSD": "BTCUSDT"}
+
+
+def download_binance(pair: str = "BTCUSD", start: str = "2017-08") -> list[Path]:
+    """Bougies M1 mensuelles de Binance (publiques, sans compte), converties en parquet mensuel (UTC)."""
+    symbol = BINANCE_SYMBOLS[pair]
+    this_month = pd.Timestamp.now(tz="UTC").strftime("%Y-%m")
+    paths = []
+    for month in pd.period_range(start, this_month, freq="M")[:-1].strftime("%Y-%m"):  # mois terminés
+        path = DATA_DIR / "raw" / f"{pair}_{SOURCES['binance']}_M1_{month}.parquet"
+        if not path.exists():
+            url = BINANCE_URL.format(symbol=symbol, month=month)
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=120) as resp:
+                    raw = resp.read()
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    continue
+                raise
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                with z.open(z.namelist()[0]) as fh:
+                    df = pd.read_csv(fh, header=None, usecols=range(6), names=["t", "open", "high", "low", "close", "volume"])
+            # Horodatage en millisecondes jusqu'en 2024, en microsecondes ensuite.
+            unit = "us" if df["t"].iloc[0] > 1e14 else "ms"
+            df.index = pd.to_datetime(df.pop("t"), unit=unit, utc=True)
+            df.index.name = "time"
+            df = df.astype("float64")
+            df = df[df["volume"] > 0]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(path)
+        print(f"{pair} {month} : ok", flush=True)
+        paths.append(path)
+    return paths
+
+
 def load_m1(pair: str, start: str | None = None, end: str | None = None, source: str = "histdata") -> pd.DataFrame:
-    """Bougies M1 en heure de Zurich, sur [start, end)."""
+    """Bougies M1 en heure de Zurich, sur [start, end). La source imposée par l'instrument prime."""
+    inst = INSTRUMENTS.get(pair)
+    if inst is not None and inst.source:
+        source = inst.source
     files = sorted((DATA_DIR / "raw").glob(f"{pair}_{SOURCES[source]}_M1_*.parquet"))
     if not files:
         raise FileNotFoundError(f"Aucune donnée {source} pour {pair} (voir le README, section Données)")
