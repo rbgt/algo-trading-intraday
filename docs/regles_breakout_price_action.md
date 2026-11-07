@@ -72,3 +72,32 @@ On change un réglage à la fois :
 | Largeur de la zone (× ATR H1) | 0,2 | 0,1 · 0,3 |
 | Délai du pullback (bougies H1) | 24 | 12 · 48 |
 | Filtre H4 | actif | désactivé |
+
+## 6. Résultat (2015–2021, HistData) : **rejetée**
+
+Test lancé après le commit des règles ci-dessus, sans modification.
+
+| Paire | Trades | Réussite | R moyen net (1,1 pip) | Profit factor | Années positives | Stop médian | Objectif médian |
+|---|---|---|---|---|---|---|---|
+| EUR/USD | 119 | 28 % | −0,18 | 0,80 | 3 / 7 | 5,0 pips | 3,3 R |
+| GBP/USD | 95 | 25 % | −0,27 | 0,69 | 2 / 7 | 7,2 pips | 3,1 R |
+
+Aucun critère n'est rempli, et il y a moins de 150 trades par paire. Les 9 variantes de la section 5 sont toutes négatives
+sur EUR/USD (de −0,06 à −0,38 R). Sur GBP/USD, deux variantes approchent zéro (+0,02 et +0,03 R), mais sur 65 à 126 trades
+seulement, ce qui n'a pas de valeur statistique.
+
+**Entonnoir (EUR/USD)** : 2 403 cassures de force en 7 ans, dont 732 dans le sens de la tendance H4 et 892 avec un H4 neutre.
+La zone dure 6 heures en médiane, souvent annulée par une fausse cassure. 926 zones sont revisitées entre 8h et 12h.
+Il ne reste que 149 signaux avec une pin bar dans le bon sens, puis 119 trades.
+
+Ce qu'on apprend :
+- **Le stop serré coûte cher** : avec environ 5 à 7 pips de stop, le coût pèse environ 0,15 à 0,2 R par trade. Le gain brut
+  (+0,05 R sur EUR/USD, −0,12 R sur GBP/USD) ne le compense pas.
+- **Les objectifs lointains se paient en réussite** : un objectif médian d'environ 3 R donne seulement 25 à 28 % de trades
+  gagnants. Il en faudrait environ 30 % ou plus pour être à l'équilibre après les coûts.
+- **Trop peu de trades** pour juger sur 7 ans (environ 15 par an) : même un vrai avantage serait impossible à
+  distinguer du hasard.
+- **Volume, triangles et obliques non testés** (voir la section 4). Ils restent des pistes, mais rien n'indique
+  qu'ils changeraient un gain brut proche de zéro.
+
+La période 2022–2026 n'a pas été utilisée.

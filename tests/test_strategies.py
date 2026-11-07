@@ -20,7 +20,7 @@ def synthetic_m1(days=30, seed=0):
         "low": np.minimum(open_, close) - spread,
         "close": close,
         "volume": 1.0,
-    }, index=idx)
+    }, index=pd.DatetimeIndex(idx, name="time"))
 
 
 def test_london_signals_respect_rules():
@@ -75,3 +75,48 @@ def test_contre_tendance_trades_against_daily_stretch():
         d = s.day.tz_localize(None)
         assert (e[d] >= 0.5) if s.direction == -1 else (e[d] <= -0.5)
         assert np.isclose(s.stop_dist, 0.5 * a[d])
+
+
+def h1_frame(rows):
+    idx = pd.date_range("2020-03-02 00:00", periods=len(rows), freq="1h", tz=TZ)
+    return pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx).assign(volume=1.0)
+
+
+def test_breakout_zone_needs_force_candle_and_kills_weak_crossings():
+    from fxbt.strategies import breakout_price_action as bpa
+
+    # 20 bougies calmes pour l'ATR, un sommet à 1.1050 (bougie 22), puis une cassure.
+    calm = [(1.1000, 1.1010, 1.0990, 1.1000)] * 20
+    swing = [(1.1000, 1.1020, 1.0995, 1.1015), (1.1015, 1.1030, 1.1010, 1.1025),
+             (1.1025, 1.1050, 1.1020, 1.1030), (1.1030, 1.1035, 1.1010, 1.1015),
+             (1.1015, 1.1020, 1.1000, 1.1005), (1.1005, 1.1010, 1.0995, 1.1000)]
+    force = [(1.1000, 1.1072, 1.0998, 1.1070)]   # corps de 70 pips, clôture près du plus haut
+    weak = [(1.1040, 1.1080, 1.1000, 1.1055)]    # clôture au-dessus, mais corps faible
+    p = bpa.Params(swing_n=2, atr_len=5)
+
+    zones = bpa.find_zones(h1_frame(calm + swing + force + calm[:3]), p)
+    up = [z for z in zones if z["direction"] == 1 and z["level"] == 1.1050]
+    assert len(up) == 1 and up[0]["bar"] == 26
+    assert np.isclose(up[0]["high"] - up[0]["level"], up[0]["level"] - up[0]["low"])
+
+    zones = bpa.find_zones(h1_frame(calm + swing + weak + force + calm[:3]), p)
+    # La bougie faible a tué le niveau : la bougie de force suivante ne crée pas de zone à 1.1050.
+    assert not [z for z in zones if z["direction"] == 1 and z["level"] == 1.1050]
+
+
+def test_breakout_signals_invariants():
+    from fxbt.strategies import breakout_price_action as bpa
+
+    m1 = synthetic_m1(days=150, seed=3)
+    p = bpa.Params(force_body_atr=0.3)
+    sig = bpa.generate_signals(m1, p)
+    assert len(sig) > 0
+    tod = sig["entry_time"].dt.hour * 60 + sig["entry_time"].dt.minute
+    assert tod.between(8 * 60 + 5, 12 * 60).all()
+    m5 = m1.resample("5min").agg({"high": "max", "low": "min"})
+    for s in sig.itertuples():
+        pin = m5.loc[s.entry_time - pd.Timedelta("5min")]
+        if s.direction == 1:
+            assert np.isclose(s.stop_level, pin["low"] - 0.0002) and s.target_level >= pin["high"]
+        else:
+            assert np.isclose(s.stop_level, pin["high"] + 0.0002) and s.target_level <= pin["low"]

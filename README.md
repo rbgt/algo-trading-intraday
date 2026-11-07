@@ -31,6 +31,7 @@ Toutes les commandes s'utilisent sous la forme `.venv/bin/python -m fxbt <comman
 | `ema_breakout` | Signal M5 dans le sens de la tendance M15 | `src/fxbt/strategies/ema_breakout.py` | Rejetée |
 | `london_breakout` | Cassure de la zone asiatique | `src/fxbt/strategies/london_breakout.py` | Rejetée |
 | `contre_tendance` | Retour à la moyenne journalière | `docs/regles_contre_tendance.md` | Rejetée |
+| `breakout_price_action` | Cassure H1, pullback, pin bar M5 (filtre H4) | `docs/regles_breakout_price_action.md` | Rejetée |
 
 ### La commande `backtest`
 
@@ -172,7 +173,8 @@ avec `compare`.
 Créer `src/fxbt/strategies/ma_strategie.py` avec :
 - une dataclass `Params(BaseParams)`, qui contient tous les réglages et les limites par jour ;
 - une fonction `generate_signals(m1, params)`, qui renvoie un DataFrame de signaux candidats
-  (colonnes décrites dans `engine.SIGNAL_COLUMNS`).
+  (colonnes décrites dans `engine.SIGNAL_COLUMNS`, plus la colonne facultative `target_level` pour un objectif
+  à un niveau de prix).
 
 Puis l'ajouter au dictionnaire `STRATEGIES` dans `strategies/__init__.py`.
 

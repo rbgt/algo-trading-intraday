@@ -29,6 +29,8 @@ from .data import pip_size
 #   rr           objectif en multiples de R
 #   deadline     sortie forcée à l'ouverture de la première minute ≥ deadline
 #   day          journée de trading (Timestamp normalisé), pour les limites par jour
+# Colonne facultative :
+#   target_level objectif à un niveau de prix absolu ; remplace alors rr
 SIGNAL_COLUMNS = ["entry_time", "direction", "stop_dist", "stop_level", "rr", "deadline", "day"]
 
 
@@ -40,6 +42,7 @@ class BaseParams:
     max_consec_losses: int = 0  # 0 = pas de limite
     flat_hour: int = 17
     min_stop_pips: float = 0.0  # trade ignoré si le stop est plus court
+    min_target_r: float = 0.0  # avec target_level : trade ignoré si l'objectif est à moins de ce nombre de R
 
 
 @dataclass(frozen=True)
@@ -167,7 +170,13 @@ def run(
         if not dist > 0 or dist / pip < params.min_stop_pips:
             continue
         stop = entry - d * dist
-        target = entry + d * s.rr * dist
+        target_level = getattr(s, "target_level", math.nan)
+        if math.isnan(target_level):
+            target = entry + d * s.rr * dist
+        elif d * (target_level - entry) >= max(params.min_target_r * dist, 1e-12):
+            target = target_level
+        else:
+            continue
 
         quote_eur = converter.to_eur(quote, t)
         base_eur = converter.to_eur(base, t)

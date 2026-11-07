@@ -102,3 +102,13 @@ def test_min_stop_guard():
     params = BaseParams(max_trades_per_day=5, min_stop_pips=20)
     assert backtest(signal(stop_dist=0.0019), m1, params=params).empty
     assert len(backtest(signal(stop_dist=0.0020), m1, params=params)) == 1
+
+
+def test_target_level_and_min_target_r():
+    m1 = make_m1(flat_until_17([(1.1000, 1.1001, 1.0999, 1.1000), (1.1000, 1.1031, 1.0999, 1.1030)], 1.1030))
+    params = BaseParams(max_trades_per_day=5, min_target_r=1.0)
+    sig = signal(stop_dist=0.0010).assign(target_level=1.1030)
+    t = backtest(sig, m1, params=params).iloc[0]
+    assert t.reason == "target" and t.r == pytest.approx(3.0)
+    # Objectif à 0,5 R : ignoré.
+    assert backtest(signal(stop_dist=0.0010).assign(target_level=1.1005), m1, params=params).empty
