@@ -58,7 +58,7 @@ def _evaluate(job: tuple[str, dict]) -> dict:
     w = _WORKER
     row = dict(values)
     for pair in w["pairs"]:
-        signals = module.generate_signals(w["m1s"][pair], params)
+        signals = module.generate_signals(w["m1s"][pair], params, pair)
         trades = run(signals[signals["entry_time"] >= w["start"]], w["m1s"][pair], pair, params, Account(), w["cost"], w["converter"])
         m = metrics.summarize(trades, Account().capital)
         row[f"{pair}_trades"] = m["trades"]
@@ -109,7 +109,7 @@ def direction_null(strategy: str, params, m1s: dict, converter: Converter, start
     rows = []
     for pair in pairs:
         m1 = m1s[pair]
-        signals = module.generate_signals(m1, params)
+        signals = module.generate_signals(m1, params, pair)
         trades = run(signals[signals["entry_time"] >= start], m1, pair, params, Account(), cost, converter)
         if trades.empty:
             continue

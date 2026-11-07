@@ -2,7 +2,8 @@
 
 Une stratégie est un module qui définit :
 - une dataclass `Params` qui hérite de `BaseParams` (tous ses réglages, limites par jour comprises) ;
-- une fonction `generate_signals(m1, params)` qui renvoie un DataFrame de signaux candidats ;
+- une fonction `generate_signals(m1, params, pair)` qui renvoie un DataFrame de signaux candidats
+  (`pair` sert aux stratégies qui ont besoin de données propres à la paire) ;
 - un dictionnaire `PARAM_SPACE` (plages de tirage pour le Monte-Carlo).
 
 Les stratégies ne connaissent pas le moteur : c'est la simulation qui les exécute.

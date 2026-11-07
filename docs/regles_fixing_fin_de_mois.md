@@ -55,3 +55,31 @@ Sur 2015–2021, coût de 1,1 pip, la stratégie est retenue **seulement si tout
 | Heure d'entrée | 16h00 | 15h00 · 16h30 |
 | Écart minimal `|D|` pour trader | 0 % | 2 % |
 | Stop (× ATR journalier) | 0,5 | 1,0 |
+
+## 5. Résultat (2015–2021, HistData) : **rejetée**
+
+Test lancé après le commit des règles ci-dessus, sans modification.
+
+| Cas | Trades | Pips moyens nets | EUR/USD | GBP/USD | t-stat | Années positives |
+|---|---|---|---|---|---|---|
+| Base, 1,1 pip | 168 | −1,7 | −1,8 | −1,7 | −0,70 | 4 / 7 |
+| Base, 1,5 pip | 168 | −2,1 | −2,2 | −2,1 | −0,87 | 3 / 7 |
+| Base, sans coût (brut) | 168 | −0,6 | −0,7 | −0,6 | −0,26 | 4 / 7 |
+| Entrée 15h00 | 168 | −2,0 | −3,9 | −0,1 | −0,74 | 2 / 7 |
+| Entrée 16h30 | 168 | −0,8 | −0,5 | −1,1 | −0,39 | 5 / 7 |
+| Écart minimal 2 % | 89 | −0,4 | −5,6 | +5,3 | −0,10 | 5 / 7 |
+| Stop 1,0 × ATR | 168 | −2,0 | −2,5 | −1,6 | −0,81 | 4 / 7 |
+
+Aucun critère n'est rempli : le gain est négatif sur les deux paires, et la t-stat est loin de +2 (elle est même négative).
+
+Par année (base, en pips cumulés sur les deux paires) : 2015 −73, 2016 +84, 2017 +174, 2018 +8, 2019 −48, 2020 +127,
+**2021 −563** (22 trades perdants sur 24 : les données ont été vérifiées trade par trade et sont correctes).
+
+Ce qu'on apprend :
+- **Les flux de fin de mois existent bien** : entre 16h et 17h le dernier jour du mois, EUR/USD et GBP/USD bougent souvent
+  de 15 à 40 pips. Mais la règle publique (l'écart de performance des indices actions) **ne prévoit pas leur sens**
+  sur 2015–2021. L'effet a probablement été exploité après sa publication en 2015, ou noyé par d'autres flux.
+- **Ne pas inverser le sens** à cause de 2021 : sur les autres années, le résultat est mitigé, pas inversé. Choisir le
+  sens après coup serait de la suroptimisation.
+
+La période 2022–2026 n'a pas été utilisée.

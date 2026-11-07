@@ -189,7 +189,7 @@ def find_zones(bars: pd.DataFrame, p: Params, tf: str | None = None) -> list[dic
     return zones
 
 
-def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
+def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd.DataFrame:
     levels = resample(m1, p.level_tf)
     m5 = resample(m1, "5min")
     zones = find_zones(levels, p)

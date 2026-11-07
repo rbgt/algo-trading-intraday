@@ -13,6 +13,7 @@ python3 -m venv .venv
 # 2. Récupérer et préparer les données (une seule fois, environ 5 minutes)
 .venv/bin/python -m fxbt download-histdata --pairs EURUSD GBPUSD
 .venv/bin/python -m fxbt import-histdata --pairs EURUSD GBPUSD
+.venv/bin/python -m fxbt download-indices   # S&P 500, DAX, FTSE 100 (stratégie fixing_fin_de_mois)
 .venv/bin/python -m fxbt check          # contrôle qualité : bougies, trous
 
 # 3. Lancer un backtest
@@ -33,6 +34,7 @@ Toutes les commandes s'utilisent sous la forme `.venv/bin/python -m fxbt <comman
 | `contre_tendance` | Retour à la moyenne journalière | `docs/regles_contre_tendance.md` | Rejetée |
 | `breakout_price_action` | Cassure H1, pullback, pin bar M5 (filtre H4) | `docs/regles_breakout_price_action.md` | Rejetée |
 | `breakout_pa_v2` | Version H1 / M15 / M5, avec obliques et triangles à 3 touches | `docs/regles_breakout_price_action_v2.md` | Rejetée |
+| `fixing_fin_de_mois` | Rééquilibrage de fin de mois au fixing de Londres (16h–17h) | `docs/regles_fixing_fin_de_mois.md` | Rejetée |
 
 ### La commande `backtest`
 
@@ -157,6 +159,7 @@ commande refuse de tourner.
 | `import-histdata` | Convertit ces fichiers en parquet mensuels, en gérant le fuseau horaire |
 | `check` | Contrôle qualité par année : nombre de bougies, trous de plus de 30 minutes |
 | `compare` | Compare HistData et Dukascopy minute par minute |
+| `download-indices` | Télécharge les clôtures du S&P 500, du DAX et du FTSE 100 (Yahoo Finance) dans `data/indices/` |
 | `download` | Télécharge depuis Dukascopy (lent, avec un risque de blocage) |
 
 Les données vont dans `data/` et les résultats dans `results/` ; aucun des deux n'est versionné. Une analyse
@@ -204,7 +207,7 @@ tests/                       # test_data.py, test_strategies.py, test_simulation
 
 Créer `src/fxbt/strategies/ma_strategie.py` en respectant l'interface décrite dans `strategies/base.py` :
 - une dataclass `Params(BaseParams)`, qui contient tous les réglages et les limites par jour ;
-- une fonction `generate_signals(m1, params)`, qui renvoie un DataFrame de signaux candidats
+- une fonction `generate_signals(m1, params, pair)`, qui renvoie un DataFrame de signaux candidats
   (colonnes `SIGNAL_COLUMNS`, plus la colonne facultative `target_level` pour un objectif à un niveau de prix) ;
 - un dictionnaire `PARAM_SPACE`, qui donne les plages de tirage pour le Monte-Carlo.
 

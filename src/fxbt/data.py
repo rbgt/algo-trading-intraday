@@ -28,6 +28,8 @@ import pandas as pd
 TZ = "Europe/Zurich"
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 HIST_DIR = DATA_DIR / "histdata"
+INDEX_DIR = DATA_DIR / "indices"
+INDICES = {"^GSPC": "S&P 500", "^GDAXI": "DAX", "^FTSE": "FTSE 100"}
 SOURCES = {"dukascopy": "BID", "histdata": "HIST"}  # source → étiquette des fichiers
 HOST = "datafeed.dukascopy.com"
 PATH = "/datafeed/{pair}/{y}/{m:02d}/{d:02d}/{side}_candles_min_1.bi5"
@@ -246,6 +248,36 @@ def import_histdata(pair: str) -> list[Path]:
     df = pd.concat(frames).sort_index()
     df = df[~df.index.duplicated()]
     return _save_monthly(df, pair, SOURCES["histdata"])
+
+
+def download_indices(symbols=tuple(INDICES), start: str = "2014-01-01") -> list[Path]:
+    """Clôtures journalières des indices actions (Yahoo Finance), datées dans le fuseau de leur bourse."""
+    import json
+
+    INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    period1 = int(pd.Timestamp(start, tz="UTC").timestamp())
+    period2 = int(pd.Timestamp.now(tz="UTC").timestamp())
+    paths = []
+    for symbol in symbols:
+        url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
+               f"?period1={period1}&period2={period2}&interval=1d")
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=60) as resp:
+            result = json.load(resp)["chart"]["result"][0]
+        tz = result["meta"]["exchangeTimezoneName"]
+        dates = pd.to_datetime(result["timestamp"], unit="s", utc=True).tz_convert(tz).tz_localize(None).normalize()
+        closes = pd.Series(result["indicators"]["quote"][0]["close"], index=dates, name="close").dropna()
+        path = INDEX_DIR / f"{symbol.lstrip('^')}.csv"
+        closes[~closes.index.duplicated(keep="last")].to_csv(path, index_label="date")
+        paths.append(path)
+    return paths
+
+
+def load_index(symbol: str) -> pd.Series:
+    """Clôtures journalières d'un indice, indexées par date de bourse (sans fuseau horaire)."""
+    path = INDEX_DIR / f"{symbol.lstrip('^')}.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"Indice {symbol} absent. Lancer d'abord : python -m fxbt download-indices")
+    return pd.read_csv(path, index_col="date", parse_dates=["date"])["close"]
 
 
 def load_m1(pair: str, start: str | None = None, end: str | None = None, source: str = "histdata") -> pd.DataFrame:

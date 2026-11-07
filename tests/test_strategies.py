@@ -139,3 +139,34 @@ def test_trendline_with_three_touches_creates_sloped_zone():
     # Sans les obliques, la même bougie ne casse que les petits niveaux à 1.1010.
     zones = bpa.find_zones(h1_frame(rows), bpa.Params(swing_n=2, atr_len=5), tf="1h")
     assert all(z["level"] < 1.102 for z in zones if z["bar"] == 40)
+
+
+def test_fixing_direction_follows_equity_performance_gap(monkeypatch):
+    from fxbt import data
+    from fxbt.strategies import fixing_fin_de_mois as fx
+
+    m1 = synthetic_m1(days=120, seed=4)
+    dates = pd.bdate_range("2019-12-02", "2020-04-30")
+    # S&P 500 en hausse régulière, DAX plat : le S&P fait mieux chaque mois → achat d'EUR/USD.
+    indices = {"^GSPC": pd.Series(np.linspace(100, 130, len(dates)), index=dates),
+               "^GDAXI": pd.Series(100.0, index=dates)}
+    monkeypatch.setattr(data, "load_index", lambda s: indices[s])
+
+    sig = fx.generate_signals(m1, fx.Params(), "EURUSD")
+    assert len(sig) >= 3 and (sig["direction"] == 1).all()
+    assert (sig["entry_time"].dt.strftime("%H:%M") == "16:00").all()
+    assert (sig["deadline"].dt.strftime("%H:%M") == "17:00").all()
+    # Un signal par mois, le dernier jour de semaine du mois.
+    assert sig["day"].dt.strftime("%Y-%m").is_unique
+    assert ((sig["day"] + pd.offsets.BDay(1)).dt.month != sig["day"].dt.month).all()
+
+    indices["^GSPC"] = pd.Series(np.linspace(130, 100, len(dates)), index=dates)
+    assert (fx.generate_signals(m1, fx.Params(), "EURUSD")["direction"] == -1).all()
+
+
+def test_month_to_date_return_uses_only_past_closes():
+    from fxbt.strategies.fixing_fin_de_mois import month_to_date_return
+
+    closes = pd.Series([100.0, 110.0, 121.0, 999.0], index=pd.to_datetime(["2020-01-31", "2020-02-27", "2020-02-28", "2020-02-29"]))
+    # Signal le 28 février : référence = 31 janvier, dernière clôture connue = 27 février.
+    assert np.isclose(month_to_date_return(closes, pd.Timestamp("2020-02-28")), 0.10)

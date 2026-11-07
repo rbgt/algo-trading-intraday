@@ -70,6 +70,11 @@ def cmd_download_histdata(args):
         data.download_histdata(pair, args.start_year)
 
 
+def cmd_download_indices(args):
+    for path in data.download_indices():
+        print(f"{path.stem} : ok")
+
+
 def cmd_import_histdata(args):
     for pair in args.pairs:
         paths = data.import_histdata(pair)
@@ -110,7 +115,7 @@ def cmd_backtest(args):
 
     rows, base_trades = [], {}
     for pair in args.pairs:
-        signals = module.generate_signals(m1s[pair], params)
+        signals = module.generate_signals(m1s[pair], params, pair)
         signals = signals[signals["entry_time"] >= tz_start]
         for cost in args.costs:
             trades = run(signals, m1s[pair], pair, params, account, cost, converter)
@@ -143,7 +148,7 @@ def cmd_sweep(args):
         params = dataclasses.replace(base, **dict(zip(grid, combo)))
         row = dict(zip(grid, combo))
         for pair in args.pairs:
-            signals = module.generate_signals(m1s[pair], params)
+            signals = module.generate_signals(m1s[pair], params, pair)
             trades = run(signals[signals["entry_time"] >= tz_start], m1s[pair], pair, params, account, args.cost, converter)
             m = metrics.summarize(trades, account.capital)
             row |= {f"{pair}_trades": m["trades"], f"{pair}_R_moyen": m.get("R_moyen"), f"{pair}_PF": m.get("profit_factor")}
@@ -193,6 +198,9 @@ def main(argv=None):
     dh.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])
     dh.add_argument("--start-year", type=int, default=2014)
     dh.set_defaults(func=cmd_download_histdata)
+
+    di = sub.add_parser("download-indices", help="Télécharger les indices actions (S&P 500, DAX, FTSE 100)")
+    di.set_defaults(func=cmd_download_indices)
 
     h = sub.add_parser("import-histdata", help="Importer les fichiers HistData de data/histdata/")
     h.add_argument("--pairs", nargs="+", default=["EURUSD", "GBPUSD"])

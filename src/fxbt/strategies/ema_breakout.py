@@ -41,7 +41,7 @@ class Params(BaseParams):
     flat_hour: int = 17
 
 
-def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
+def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd.DataFrame:
     sig = resample(m1, p.signal_tf)
     trend = resample(m1, p.trend_tf)
 

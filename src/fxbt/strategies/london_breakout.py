@@ -39,7 +39,7 @@ class Params(BaseParams):
     flat_hour: int = 17
 
 
-def generate_signals(m1: pd.DataFrame, p: Params) -> pd.DataFrame:
+def generate_signals(m1: pd.DataFrame, p: Params, pair: str | None = None) -> pd.DataFrame:
     bars = resample(m1, p.tf)
     day = bars.index.normalize()
     tod = bars.index.hour * 60 + bars.index.minute
