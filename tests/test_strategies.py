@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from fxbt.strategies import london_breakout
+from fxbt.strategies import london_breakout, smc, smc_ob
 
 TZ = "Europe/Zurich"
 
@@ -209,3 +209,23 @@ def test_fixing_direction_is_reversed_when_usd_is_base(monkeypatch):
     # S&P 500 devant : vente de dollar, donc vente d'USD/CHF.
     assert (fx.generate_signals(m1, fx.Params(), "USDCHF")["direction"] == -1).all()
     assert fx.generate_signals(m1, fx.Params(), "BTCUSD").empty
+
+
+def test_smc_signals_follow_sweep_and_zone_rules():
+    m1 = synthetic_m1(days=120, seed=3)
+    for module in (smc, smc_ob):
+        sig = module.generate_signals(m1, module.Params(), "EURUSD")
+        assert len(sig) > 0
+        assert (sig["entry_time"].dt.hour.between(8, 12)).all()
+        assert not sig.duplicated(["day", "direction"]).any()  # un setup par côté et par jour
+        for s in sig.itertuples():
+            day = m1[m1.index.normalize() == s.day]
+            asia = day[day.index.hour < 7]
+            before = day[(day.index >= s.day + pd.Timedelta(hours=8)) & (day.index < s.entry_time)]
+            if s.direction == 1:
+                # Stop sous le bas asiatique : extrême du sweep (atteint avant l'entrée) moins 1 pip.
+                assert s.stop_level < asia["low"].min()
+                assert before["low"].min() - 0.0001 <= s.stop_level + 1e-9
+            else:
+                assert s.stop_level > asia["high"].max()
+                assert before["high"].max() + 0.0001 >= s.stop_level - 1e-9

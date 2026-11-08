@@ -41,6 +41,8 @@ Toutes les commandes s'utilisent sous la forme `.venv/bin/python -m fxbt <comman
 | `breakout_pa_v2` | Version H1 / M15 / M5, avec obliques et triangles à 3 touches | `docs/regles_breakout_price_action_v2.md` | Rejetée |
 | `fixing_fin_de_mois` | Rééquilibrage de fin de mois au fixing de Londres (16h–17h) | `docs/regles_fixing_fin_de_mois.md` | Rejetée |
 | `surprise_annonces` | Poursuite après une surprise macro (chiffre réel contre consensus), entrée 15 min après | `docs/regles_surprise_annonces.md` | Rejetée |
+| `smc` | SMC : sweep de la zone asiatique, CHoCH M5, entrée au retour dans le FVG | `docs/regles_smc.md` | Rejetée |
+| `smc_ob` | Comme `smc`, avec entrée sur l'order block (définition ICT) | `docs/regles_smc.md` | Rejetée |
 
 ### La commande `backtest`
 

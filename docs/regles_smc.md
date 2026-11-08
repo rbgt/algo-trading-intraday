@@ -112,3 +112,36 @@ l'order block** (« mean threshold » d'ICT).
 ## 7. Version swing (repo algo-trading-swing)
 
 Le même schéma sur plusieurs jours est décrit dans `docs/regles_smc_swing.md` du repo swing.
+
+## 8. Résultat (2015–2021, HistData, coût de 1,1 pip) : **G et G-OB rejetées**
+
+Test lancé après le commit des règles ci-dessus (sections 1 à 6), sans modification.
+
+| Version | Paire | Trades | Réussite | R moyen net | Profit factor | Années positives | R à 1,5 pip | Stop médian | Hasard qui fait mieux |
+|---|---|---|---|---|---|---|---|---|---|
+| G (FVG) | EUR/USD | 197 | 34 % | −0,113 | 0,84 | 3 / 7 | −0,144 | 12,6 pips | 77,5 % |
+| G (FVG) | GBP/USD | 274 | 39 % | +0,038 | 1,06 | 3 / 7 | +0,011 | 16,0 pips | 23,2 % |
+| G (FVG) | USD/CHF *(info)* | 184 | 37 % | −0,066 | 0,90 | 2 / 7 | — | 11,9 pips | — |
+| G-OB | EUR/USD | 97 | 23 % | −0,413 | 0,51 | 0 / 7 | −0,446 | 12,2 pips | 99,7 % |
+| G-OB | GBP/USD | 136 | 40 % | +0,052 | 1,08 | 4 / 7 | +0,021 | 12,6 pips | 16,9 % |
+| G-OB | USD/CHF *(info)* | 70 | 40 % | +0,059 | 1,09 | 4 / 7 | — | 11,2 pips | — |
+
+- **G** : aucun critère rempli sur EUR/USD. Sur GBP/USD, +0,04 R ne bat pas le hasard (23 %). Les 14 variantes
+  sont toutes négatives sur EUR/USD (de −0,07 à −0,21 R).
+- **G-OB** : GBP/USD passe 3 critères sur 7, mais avec moins de 150 trades, un profit factor de 1,08 et 17 % de
+  tirages au hasard qui font mieux. EUR/USD perd dans les 7 années, et toutes les variantes sont négatives
+  (de −0,14 à −0,54 R). L'entrée au milieu de l'order block ne donne que 25 à 34 trades, tous deux négatifs.
+- **Monte-Carlo** (300 jeux de réglages par version) : aucun tirage n'atteint +0,05 R avec 150 trades sur les deux
+  paires ; seuls 3 % (G) et 1 % (G-OB) des tirages sont positifs sur les deux paires. Médiane EUR/USD : −0,12 R (G)
+  et −0,32 R (G-OB).
+
+Ce qu'on apprend :
+- **Le stop minimal a fonctionné** (stop médian de 11 à 16 pips) : le coût ne pèse qu'environ 0,07 à 0,1 R. Le
+  problème n'est pas le coût, c'est que le schéma n'a pas d'avantage brut.
+- **Le résultat dépend de la paire**, positif sur GBP/USD et négatif sur EUR/USD, ce qui est la signature du hasard.
+  Le −0,41 R de G-OB sur EUR/USD (99,7 % des tirages font mieux) ne veut pas dire qu'il faut prendre le sens
+  inverse : sur GBP/USD, le sens inverse perdrait.
+- **L'order block entre plus loin** que le haut du FVG : il donne moins de trades (environ 50 % de moins), sans
+  meilleur résultat.
+
+La période 2022–2026 n'a pas été utilisée.
