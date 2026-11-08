@@ -6,6 +6,46 @@ M1 (HistData, Binance, Dukascopy), avec un moteur de backtest simple et vérifia
 Les stratégies sur plusieurs jours sont dans le repo [algo-trading-swing](https://github.com/rbgt/algo-trading-swing),
 qui utilise ce repo comme bibliothèque (paquet `fxbt` : données, moteur, mesures, Monte-Carlo).
 
+## Conclusion (novembre 2026) : recherche arrêtée
+
+**Aucune stratégie testée n'a d'avantage exploitable sur le forex**, ni en intraday ni en swing. La recherche sur le
+forex est arrêtée.
+
+| Approche | Repo | Résultat sur 2015–2021 (R moyen net par trade) |
+|---|---|---|
+| A. EMA Breakout (M5 / M15) | intraday | −0,18 (EUR/USD), −0,08 (GBP/USD) |
+| B. London Breakout (cassure de la zone asiatique) | intraday | −0,11, −0,04 |
+| C. Contre-tendance (retour à la moyenne journalière) | intraday | −0,03, −0,00 |
+| D et D2. Breakout Price Action (H4 / H1 / M5) | intraday | de −0,27 à +0,05, variantes négatives |
+| E. Fixing de fin de mois | intraday | −1,7 pip par trade, t = −0,70 |
+| F. Surprise macro (annonces économiques) | intraday | −0,05, −0,04, R brut négatif |
+| G. Smart Money Concepts (sweep, CHoCH, FVG ou order block) | intraday | de −0,41 à +0,05, ne bat pas le hasard |
+| S1. Cassure de Donchian | swing | +0,16 réuni, mais seul le BTC est positif ; BTC seul en 2022–2026 : échec |
+| S2. Momentum sur 12 mois | swing | −0,12 |
+| S3 et S4. SMC en H4 (FVG ou order block) | swing | +0,015 et −0,21 |
+
+Toutes ces approches ont suivi la même méthode : règles écrites et commitées avant le test, conception sur 2015–2021
+seulement, coûts réalistes (spread, glissement, swap), sensibilité des réglages, Monte-Carlo sur les paramètres et
+test contre le hasard (sens tiré à pile ou face). La période 2022 → 2026 n'a servi qu'une fois, pour le Donchian sur le BTC.
+
+**Ce qu'on en retient**
+
+- **Le problème est l'absence d'avantage brut, pas les coûts.** Sans aucun coût, la meilleure stratégie intraday
+  gagne environ +0,06 R par trade. Un broker moins cher, des stops plus larges ou un filtre d'annonces ne changent
+  aucun verdict.
+- **C'est la logique des stratégies, pas le réglage.** Sur plus de 1 500 jeux de réglages tirés au hasard, aucun
+  ne passe les critères.
+- **Un résultat positif sur une seule paire est la signature du hasard.** Plusieurs stratégies gagnent sur GBP/USD
+  et perdent sur EUR/USD, ou l'inverse.
+- **Le capital ne change rien au verdict.** Avec 1 000 € au lieu de 100 €, les résultats en R sont identiques. Plus de
+  capital rend les trades exécutables (micro-lot), pas rentables.
+- **Le forex majeur est le marché le plus efficient.** Les avantages qui y existent demandent des moyens
+  institutionnels (données, exécution, coûts) et une recherche à plein temps.
+
+**Si la recherche reprend un jour**, les pistes les mieux documentées sont sur les **indices actions** (momentum
+intraday sur le S&P 500 ou le Nasdaq, retour à la moyenne à court terme, effet de tournant de mois) ou dans
+l'**investissement passif et multi-actifs**, avec la même méthode et les mêmes outils (`fxbt`).
+
 ## Démarrage rapide
 
 ```bash
