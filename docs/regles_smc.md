@@ -17,7 +17,7 @@
 | **CHoCH** (changement de caractère) | Une **clôture M5 au-dessus du dernier sommet de swing confirmé** avant l'extrême du sweep, dans les **24 bougies M5** (2 h) qui suivent le premier dépassement. Sinon, le setup est abandonné. *(choix : 24 bougies)* |
 | **Jambe impulsive** | Les bougies M5 de l'extrême du sweep jusqu'à la bougie du CHoCH incluse. |
 | **Fair Value Gap** (FVG, achat) | Trois bougies M5 consécutives de la jambe impulsive avec **plus haut de la 1ʳᵉ < plus bas de la 3ᵉ**. La zone va du plus haut de la 1ʳᵉ (bas du FVG) au plus bas de la 3ᵉ (haut du FVG). On garde le **dernier** FVG de la jambe. Sans FVG, pas de trade. *(choix : le dernier)* |
-| **Order block** | **Non utilisé** : sa définition varie trop d'un trader à l'autre (voir la section 4). |
+| **Order block** (achat) | La **dernière bougie M5 baissière** (clôture < ouverture) **avant l'impulsion** : on la cherche en remontant depuis la bougie de l'extrême du sweep (incluse), sur 5 bougies au plus. La zone va de son plus bas à son plus haut, mèches comprises. Elle n'est valide que si la jambe impulsive contient un FVG et produit un CHoCH (définition ICT). Utilisé par la version G-OB, voir la section 6. |
 
 La vente est le symétrique : sweep du **haut** asiatique, CHoCH sous le dernier creux de swing, FVG baissier
 (plus bas de la 1ʳᵉ > plus haut de la 3ᵉ).
@@ -27,7 +27,10 @@ La vente est le symétrique : sweep du **haut** asiatique, CHoCH sous le dernier
 Toutes les heures sont en heure de Zurich.
 
 1. **Zone asiatique** : plus haut et plus bas M1 entre 00h00 et 06h59.
-2. **Sweep** du bas asiatique, avec réintégration dans les 6 bougies M5, entre 08h00 et 10h55.
+2. **Sweep** du bas asiatique, avec réintégration dans les 6 bougies M5, entre 08h00 et 10h55. Seul le
+   **premier dépassement** du jour compte pour chaque côté : s'il n'est pas réintégré ou ne donne pas de CHoCH,
+   ce côté est abandonné pour la journée. Journée ignorée s'il manque plus de 120 minutes dans la zone asiatique
+   (garde-fou contre les trous de données).
 3. **CHoCH M5** dans les 24 bougies M5 après le premier dépassement, au plus tard sur la bougie de 10h55.
 4. **FVG** haussier dans la jambe impulsive. S'il n'y en a pas, le setup est abandonné.
 5. **Signal** : la première bougie **M1** après la clôture du CHoCH dont le plus bas touche le **haut du FVG**.
@@ -59,8 +62,8 @@ stratégies A à F. USD/CHF est donné à titre d'information, sans entrer dans 
 ## 4. Limites connues
 
 - **Order blocks** : selon les sources, c'est la dernière bougie opposée avant l'impulsion, la dernière bougie
-  avant le BOS, ou une zone englobant plusieurs bougies. Choisir l'une d'elles après coup serait de la
-  suroptimisation. Le FVG joue ici le même rôle (zone de retour avant la reprise du mouvement).
+  avant le BOS, ou une zone englobant plusieurs bougies. La version G-OB (section 6) retient la définition ICT,
+  fixée avant tout test.
 - **Biais de plus haute unité de temps** : beaucoup de traders SMC ne prennent que les sweeps dans le sens du
   biais H4 ou journalier. Il est testé comme une variante (section 5), pas dans la version de base.
 - **Premium / discount, inducement, SMT divergence** : non testés dans cette version.
@@ -82,3 +85,30 @@ On change un réglage à la fois :
 | Stop minimal (pips) | 8 | 5 · 12 |
 | Objectif | 2 R | 1,5 R · 3 R · côté opposé de la zone asiatique (au moins 1 R) |
 | Biais journalier | aucun | achats seulement si la clôture de la veille est au-dessus de l'EMA 50 journalière (et l'inverse pour les ventes) |
+
+## 6. Version G-OB : entrée sur l'order block (ajoutée avant tout test)
+
+Ajoutée à la demande de Rick, toujours **avant tout test**. Même setup que G (sweep, CHoCH, FVG obligatoire comme
+preuve d'impulsion) ; seule la zone d'entrée change.
+
+**Pourquoi cette définition** : c'est celle d'ICT, à l'origine du vocabulaire SMC, et la seule qui se traduit
+sans ambiguïté. « La dernière bougie de sens opposé avant le mouvement qui casse la structure » désigne une seule
+bougie, alors que les zones « englobant plusieurs bougies » ou « tracées à l'œil » demandent un choix à chaque fois.
+La condition de déplacement (FVG) et de cassure (CHoCH) est celle qui distingue, chez ICT, un order block valide
+d'une simple bougie.
+
+Règles (achat ; la vente est le symétrique, avec la dernière bougie haussière avant l'impulsion baissière) :
+
+1. **Order block** : la dernière bougie M5 baissière entre la bougie de l'extrême du sweep (incluse) et les
+   5 bougies qui la précèdent. S'il n'y en a pas, pas de trade.
+2. **Signal** : la première bougie M1 après la clôture du CHoCH dont le plus bas touche le **haut de l'order block**
+   (son bord proche), dans les 12 bougies M5 et avant 11h55.
+3. **Entrée, stop, objectif, limites** : identiques à G (stop sous l'extrême du sweep moins 1 pip, au moins 8 pips,
+   objectif 2 R, sortie à 17h).
+
+Critères de réussite : les 7 de la section 3. Variantes : celles de la section 5, plus une entrée au **milieu de
+l'order block** (« mean threshold » d'ICT).
+
+## 7. Version swing (repo algo-trading-swing)
+
+Le même schéma sur plusieurs jours est décrit dans `docs/regles_smc_swing.md` du repo swing.
